@@ -227,12 +227,12 @@ export default function App() {
       const designSystemHtml = activeDesignSystem?.sourceHtml;
 
       if (variantCount > 1) {
-        const results = await generateVariants(promptText, currentHtml, byok, pinComments, variantCount, designSystemHtml, imageDataUrl);
+        const results = await generateVariants(promptText, currentHtml, byok, pinComments, variantCount, designSystemHtml, imageDataUrl, previewDevice);
         directions = results.map((r) => r.html);
         html = results[0].html;
         tokensEstimate = results.reduce((acc, r) => acc + r.tokensEstimate, 0);
       } else {
-        const result = await generateDesignCode(promptText, currentHtml, byok, pinComments, designSystemHtml, imageDataUrl);
+        const result = await generateDesignCode(promptText, currentHtml, byok, pinComments, designSystemHtml, imageDataUrl, previewDevice);
         html = result.html;
         tokensEstimate = result.tokensEstimate;
       }

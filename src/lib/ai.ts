@@ -5,7 +5,8 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
-import { BYOKConfig, UIKitDecomposition, UIKitFile, ParityCheck, DesignCritique, CritiqueFinding } from '../types';
+import { BYOKConfig, UIKitDecomposition, UIKitFile, ParityCheck, DesignCritique, CritiqueFinding, PreviewDevice } from '../types';
+import { DEVICE_VIEWPORTS } from './deviceViewports';
 import {
   ProviderModel,
   cleanApiKey,
@@ -114,6 +115,20 @@ export function getApiKeyForProvider(byok: BYOKConfig) {
   return getProviderRuntime(byok);
 }
 
+function buildViewportInstruction(device?: PreviewDevice): string {
+  if (!device) return '';
+  const { width, height } = DEVICE_VIEWPORTS[device] || DEVICE_VIEWPORTS.mobile;
+  return (
+    `\n\nTARGET VIEWPORT: This design will be previewed and screenshotted at exactly ${width}px wide ` +
+    `(${device}). It MUST look correct at that width with no horizontal overflow, no clipped or ` +
+    `overlapping text, numbers, or icons, and no elements crammed together or running into each other. ` +
+    `Use responsive units (%, flex, grid, min-w-0, truncate where needed) rather than fixed pixel widths ` +
+    `wider than ${width}px. Stat cards, sidebars, and multi-column layouts must stack or shrink ` +
+    `appropriately at this width rather than overflowing it. Vertical scrolling for a tall page is fine; ` +
+    `horizontal overflow or visual clipping is not.`
+  );
+}
+
 export async function generateVariants(
   prompt: string,
   currentCode: string | null,
@@ -121,7 +136,8 @@ export async function generateVariants(
   pinCommentsIndex: { x: number; y: number; comment: string }[],
   count: number,
   designSystemHtml?: string,
-  imageDataUrl?: string
+  imageDataUrl?: string,
+  device?: PreviewDevice
 ): Promise<{ html: string; tokensEstimate: number }[]> {
   const safeCount = Math.min(Math.max(Math.round(count), 1), 4);
   const tasks = Array.from({ length: safeCount }, (_, i) => {
@@ -129,7 +145,7 @@ export async function generateVariants(
       `Generate design direction variant ${i + 1} of ${safeCount} for the following request. ` +
       `Make this variant visually distinct from the others in layout, color palette, and mood, ` +
       `while staying equally polished and responsive.\n\nUser Request: ${prompt}`;
-    return generateDesignCode(variantPrompt, currentCode, byok, pinCommentsIndex, designSystemHtml, imageDataUrl);
+    return generateDesignCode(variantPrompt, currentCode, byok, pinCommentsIndex, designSystemHtml, imageDataUrl, device);
   });
   return Promise.all(tasks);
 }
@@ -150,7 +166,8 @@ export async function generateDesignCode(
   byok: BYOKConfig,
   pinCommentsIndex?: { x: number; y: number; comment: string }[],
   designSystemHtml?: string,
-  imageDataUrl?: string
+  imageDataUrl?: string,
+  device?: PreviewDevice
 ): Promise<{ html: string; tokensEstimate: number }> {
   const pInfo = getApiKeyForProvider(byok);
 
@@ -160,7 +177,7 @@ export async function generateDesignCode(
 
   const userApiKey = pInfo.key || byok.geminiApiKey;
 
-  let fullPrompt = `${byok.systemPrompt}\n\nUser Request: ${prompt}`;
+  let fullPrompt = `${byok.systemPrompt}\n\nUser Request: ${prompt}${buildViewportInstruction(device)}`;
   if (designSystemHtml && designSystemHtml.trim()) {
     fullPrompt += `\n\nDesign System / Brand Reference — follow these colors, fonts, spacing, and component patterns so the output matches this brand:\n\`\`\`html\n${designSystemHtml.slice(0, 12000)}\n\`\`\``;
   }
