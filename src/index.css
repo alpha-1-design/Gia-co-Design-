@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+  h1, h2, h3, .font-claude-serif {
+    font-family: 'Newsreader', 'Lora', Georgia, serif;
+  }
+}
+
+/* Custom Claude Design Utilities */
+.font-serif-claude {
+  font-family: 'Newsreader', 'Lora', Georgia, serif;
+}
+
+.font-sans-claude {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+.font-mono-claude {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Claude Terracotta Brand Color Accents */
+.bg-terracotta {
+  background-color: #d97757;
+}
+
+.bg-terracotta-hover:hover {
+  background-color: #c66545;
+}
+
+.text-terracotta {
+  color: #d97757;
+}
+
+.border-terracotta {
+  border-color: #d97757;
+}
+
+/* Custom scrollbars matching Claude paper texture */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(180, 170, 155, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 170, 155, 0.5);
+}

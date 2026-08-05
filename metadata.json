@@ -1,0 +1,6 @@
+{
+  "name": "Gia-co-Design",
+  "description": "Standalone BYOK client-side AI design studio and agentic UI kit workspace for Android and web",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
