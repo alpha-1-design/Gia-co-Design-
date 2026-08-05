@@ -70,6 +70,8 @@ export interface DesignTurn {
   role: 'user' | 'assistant';
   prompt: string;
   codeHtml: string;
+  directions?: string[];
+  activeDirection?: number;
   timestamp: number;
   modelUsed: string;
   tokensCost?: number;
@@ -84,6 +86,37 @@ export interface DesignSession {
   turns: DesignTurn[];
   activeTurnIndex: number;
   uiKit?: UIKitDecomposition;
+}
+
+export interface DesignSystem {
+  id: string;
+  name: string;
+  sourceHtml: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ImageAttachment {
+  id: string;
+  name: string;
+  dataUrl: string;
+  mimeType: string;
+}
+
+export interface CritiqueFinding {
+  severity: 'error' | 'warning' | 'suggestion';
+  category: string;
+  title: string;
+  detail: string;
+  fix?: string;
+}
+
+export interface DesignCritique {
+  score: number;
+  summary: string;
+  findings: CritiqueFinding[];
+  tokensUsed: number;
+  generatedAt: number;
 }
 
 export type PreviewDevice = 'mobile' | 'tablet' | 'desktop';

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FolderKanban, 
   Settings, 
@@ -9,9 +9,20 @@ import {
   Layers, 
   Download, 
   Sun,
-  Moon
+  Moon,
+  Loader2,
+  Palette,
+  Link2
 } from 'lucide-react';
-import { PreviewDevice, BYOKConfig } from '../types';
+import { PreviewDevice, BYOKConfig, AIProvider } from '../types';
+import { fetchLiveModels } from '../lib/ai';
+import {
+  PROVIDER_LIST,
+  ProviderModel,
+  availableModels,
+  getCuratedModels,
+  isKeyConfigured,
+} from '../lib/providers';
 
 interface HeaderProps {
   sessionTitle: string;
@@ -24,8 +35,13 @@ interface HeaderProps {
   onOpenSessions: () => void;
   onOpenDecompose: () => void;
   onOpenExport: () => void;
+  onOpenShare: () => void;
+  onOpenDesignSystems: () => void;
+  activeDesignSystemName?: string | null;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  onProviderChange: (provider: AIProvider) => void;
+  onModelChange: (model: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -39,9 +55,54 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSessions,
   onOpenDecompose,
   onOpenExport,
+  onOpenShare,
+  onOpenDesignSystems,
+  activeDesignSystemName,
   theme,
   onToggleTheme,
+  onProviderChange,
+  onModelChange,
 }) => {
+  const [models, setModels] = useState<ProviderModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+
+  const providerIdentity = [
+    byok.provider,
+    byok.opencodezenBaseUrl,
+    byok.ollamaBaseUrl,
+    byok.customBaseUrl,
+    byok.geminiApiKey,
+    byok.openrouterApiKey,
+    byok.opencodezenApiKey,
+    byok.openaiApiKey,
+    byok.anthropicApiKey,
+    byok.groqApiKey,
+    byok.deepseekApiKey,
+    byok.mistralApiKey,
+    byok.togetherApiKey,
+    byok.xaiApiKey,
+    byok.customApiKey,
+  ].join('|');
+
+  useEffect(() => {
+    let cancelled = false;
+    setModels(availableModels(byok));
+    if (isKeyConfigured(byok, byok.provider)) {
+      setModelsLoading(true);
+      fetchLiveModels(byok)
+        .then((live) => {
+          if (!cancelled && live.length > 0) setModels(live);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setModelsLoading(false);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [providerIdentity]);
+
   const hasKey = Boolean(
     byok.geminiApiKey ||
     byok.openrouterApiKey ||
@@ -58,6 +119,18 @@ export const Header: React.FC<HeaderProps> = ({
   );
 
   const isLight = theme === 'light';
+
+  const baseModelOptions = models.length > 0 ? models : getCuratedModels(byok.provider);
+  const modelOptions =
+    byok.selectedModel && !baseModelOptions.some((m) => m.value === byok.selectedModel)
+      ? [{ value: byok.selectedModel, label: `${byok.selectedModel} (custom)` }, ...baseModelOptions]
+      : baseModelOptions;
+
+  const switcherSelectCls = `h-8 px-2 rounded-lg border text-[11px] font-medium focus:outline-none focus:border-[#d97757] transition-colors ${
+    isLight
+      ? 'bg-white text-[#575249] border-[#e2ddd3]'
+      : 'bg-[#2a2723] text-[#b3ac9f] border-[#3d3831]'
+  }`;
 
   return (
     <header className={`h-14 border-b px-3 sm:px-4 flex items-center justify-between gap-2 select-none sticky top-0 z-30 transition-colors ${
@@ -143,6 +216,38 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
+      {/* Provider + Model Quick Switcher */}
+      <div className="hidden sm:flex items-center gap-1.5" title="AI provider & model">
+        <select
+          value={byok.provider}
+          onChange={(e) => onProviderChange(e.target.value as AIProvider)}
+          className={switcherSelectCls}
+        >
+          {PROVIDER_LIST.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={byok.selectedModel}
+          onChange={(e) => onModelChange(e.target.value)}
+          disabled={modelsLoading}
+          className={`${switcherSelectCls} max-w-[180px] truncate disabled:opacity-60`}
+        >
+          {modelsLoading ? (
+            <option value={byok.selectedModel}>Loading models...</option>
+          ) : (
+            modelOptions.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))
+          )}
+        </select>
+        {modelsLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#d97757]" />}
+      </div>
+
       {/* Right: Actions */}
       <div className="flex items-center gap-1.5 sm:gap-2">
         {/* Theme Toggle Button */}
@@ -173,6 +278,28 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         <button
+          onClick={onOpenDesignSystems}
+          className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            activeDesignSystemName
+              ? isLight
+                ? 'bg-[#d97757]/15 hover:bg-[#d97757]/25 text-[#a94a2e] border-[#d97757]/40'
+                : 'bg-[#d97757]/20 hover:bg-[#d97757]/30 text-[#e28566] border-[#d97757]/50'
+              : isLight
+              ? 'bg-[#f0e9dd] hover:bg-[#e7dfd1] text-[#22201d] border-[#ded8cc]'
+              : 'bg-[#2e2a25] hover:bg-[#38332d] text-[#f4f0ea] border-[#3d3831]'
+          }`}
+          title="Manage design systems / brand references"
+        >
+          <Palette className="w-3.5 h-3.5 text-[#d97757]" />
+          <span className="max-w-[110px] truncate">
+            {activeDesignSystemName ? activeDesignSystemName : 'Design System'}
+          </span>
+          {activeDesignSystemName && (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Design system active" />
+          )}
+        </button>
+
+        <button
           onClick={() => setShowCodeInspector(!showCodeInspector)}
           className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors border ${
             showCodeInspector
@@ -185,6 +312,19 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Code2 className="w-4 h-4" />
           <span className="hidden md:inline">Code</span>
+        </button>
+
+        <button
+          onClick={onOpenShare}
+          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            isLight
+              ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
+              : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
+          }`}
+          title="Generate a portable share link for this design"
+        >
+          <Link2 className="w-3.5 h-3.5 text-[#d97757]" />
+          <span>Share</span>
         </button>
 
         <button

@@ -7,13 +7,21 @@ import { CodeInspector } from './components/CodeInspector';
 import { DecomposeModal } from './components/DecomposeModal';
 import { ExportModal } from './components/ExportModal';
 import { SessionsDrawer } from './components/SessionsDrawer';
+import { DesignSystemModal } from './components/DesignSystemModal';
+import { CritiqueModal } from './components/CritiqueModal';
+import { ShareModal } from './components/ShareModal';
+import { UpdateModal } from './components/UpdateModal';
+import { Capacitor } from '@capacitor/core';
 import { 
   BYOKConfig, 
   DesignSession, 
   DesignTurn, 
   PreviewDevice, 
   PinComment, 
-  UIKitDecomposition 
+  UIKitDecomposition,
+  AIProvider,
+  DesignSystem,
+  DesignCritique
 } from './types';
 import { 
   loadBYOKConfig, 
@@ -22,10 +30,17 @@ import {
   saveSessions, 
   getActiveSessionId, 
   setActiveSessionId,
-  INITIAL_SAMPLE_HTML
+  INITIAL_SAMPLE_HTML,
+  loadDesignSystems,
+  saveDesignSystems,
+  getActiveDesignSystemId,
+  setActiveDesignSystemId
 } from './lib/storage';
-import { generateDesignCode } from './lib/ai';
-import { Smartphone, Sparkles, Code2, Layers } from 'lucide-react';
+import { generateDesignCode, generateVariants, critiqueDesign } from './lib/ai';
+import { getProviderDefinition } from './lib/providers';
+import { encodeShareLink, decodeShareHash, clearShareHash } from './lib/share';
+import { AppRelease, fetchLatestRelease, getCurrentAppVersion, hasUpdate } from './lib/updater';
+import { Smartphone, Sparkles, Code2, Layers, Link2, FolderPlus, X } from 'lucide-react';
 
 export default function App() {
   const [byok, setByok] = useState<BYOKConfig>(loadBYOKConfig);
@@ -44,12 +59,25 @@ export default function App() {
   const [showCodeInspector, setShowCodeInspector] = useState(false);
   const [showDecomposeModal, setShowDecomposeModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showDesignSystemModal, setShowDesignSystemModal] = useState(false);
+  const [designSystems, setDesignSystems] = useState<DesignSystem[]>(loadDesignSystems);
+  const [activeDesignSystemId, setActiveDesignSystemIdState] = useState<string | null>(getActiveDesignSystemId);
+  const [showCritiqueModal, setShowCritiqueModal] = useState(false);
+  const [critiqueResult, setCritiqueResult] = useState<DesignCritique | null>(null);
+  const [isCritiquing, setIsCritiquing] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [sharedSession, setSharedSession] = useState<DesignSession | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [latestRelease, setLatestRelease] = useState<AppRelease | null>(null);
+  const appVersion = getCurrentAppVersion();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [variantCount, setVariantCount] = useState(1);
   const [mobileTab, setMobileTab] = useState<'preview' | 'prompt' | 'code'>('preview');
 
   // Find active session
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
   const activeTurn = activeSession.turns[activeSession.activeTurnIndex] || activeSession.turns[0];
+  const activeDesignSystem = designSystems.find((ds) => ds.id === activeDesignSystemId) || null;
 
   // Auto-open settings if no API keys configured
   useEffect(() => {
@@ -71,9 +99,73 @@ export default function App() {
     }
   }, []);
 
+  // Load a shared design from the URL hash (portable share link)
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#s=')) return;
+    let cancelled = false;
+    (async () => {
+      const session = await decodeShareHash(hash);
+      if (!cancelled && session) {
+        setSharedSession(session);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Auto-update check: only inside the native Android app
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let cancelled = false;
+    const check = async () => {
+      const release = await fetchLatestRelease();
+      if (!cancelled && release && hasUpdate(appVersion, release.version)) {
+        setLatestRelease(release);
+        setShowUpdateModal(true);
+      }
+    };
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, [appVersion]);
+
   const handleSaveBYOK = (newConfig: BYOKConfig) => {
     setByok(newConfig);
     saveBYOKConfig(newConfig);
+  };
+
+  const handleProviderChange = (provider: AIProvider) => {
+    const def = getProviderDefinition(provider);
+    const next = { ...byok, provider, selectedModel: def.defaultModel };
+    setByok(next);
+    saveBYOKConfig(next);
+  };
+
+  const handleModelChange = (model: string) => {
+    const next = { ...byok, selectedModel: model };
+    setByok(next);
+    saveBYOKConfig(next);
+  };
+
+  const handleSaveDesignSystems = (systems: DesignSystem[]) => {
+    setDesignSystems(systems);
+    saveDesignSystems(systems);
+  };
+
+  const handleSetActiveDesignSystem = (id: string | null) => {
+    setActiveDesignSystemIdState(id);
+    setActiveDesignSystemId(id);
+  };
+
+  const handleDeleteDesignSystem = (id: string) => {
+    const updated = designSystems.filter((ds) => ds.id !== id);
+    handleSaveDesignSystems(updated);
+    if (activeDesignSystemId === id) {
+      handleSetActiveDesignSystem(null);
+    }
   };
 
   const handleSwitchSession = (id: string) => {
@@ -122,24 +214,36 @@ export default function App() {
     }
   };
 
-  const handleGenerate = async (promptText: string) => {
+  const handleGenerate = async (promptText: string, imageDataUrl?: string) => {
     setIsGenerating(true);
     try {
       const currentHtml = activeTurn?.codeHtml || null;
       const activePins = activeTurn?.pins || [];
+      const pinComments = activePins.map((p) => ({ x: p.x, y: p.y, comment: p.comment }));
 
-      const { html, tokensEstimate } = await generateDesignCode(
-        promptText,
-        currentHtml,
-        byok,
-        activePins.map((p) => ({ x: p.x, y: p.y, comment: p.comment }))
-      );
+      let html: string;
+      let tokensEstimate: number;
+      let directions: string[] | undefined;
+      const designSystemHtml = activeDesignSystem?.sourceHtml;
+
+      if (variantCount > 1) {
+        const results = await generateVariants(promptText, currentHtml, byok, pinComments, variantCount, designSystemHtml, imageDataUrl);
+        directions = results.map((r) => r.html);
+        html = results[0].html;
+        tokensEstimate = results.reduce((acc, r) => acc + r.tokensEstimate, 0);
+      } else {
+        const result = await generateDesignCode(promptText, currentHtml, byok, pinComments, designSystemHtml, imageDataUrl);
+        html = result.html;
+        tokensEstimate = result.tokensEstimate;
+      }
 
       const newTurn: DesignTurn = {
         id: `turn-${Date.now()}`,
         role: 'assistant',
         prompt: promptText,
         codeHtml: html,
+        directions,
+        activeDirection: 0,
         timestamp: Date.now(),
         modelUsed: byok.selectedModel || 'gemini-2.5-flash',
         tokensCost: tokensEstimate,
@@ -173,8 +277,58 @@ export default function App() {
     }
   };
 
-  const handleAddPin = (pinData: Omit<PinComment, 'id' | 'createdAt'>) => {
-    const newPin: PinComment = {
+  const handleCritique = async () => {
+    if (!activeTurn?.codeHtml) return;
+    setIsCritiquing(true);
+    setShowCritiqueModal(true);
+    try {
+      const result = await critiqueDesign(activeTurn.codeHtml, byok);
+      setCritiqueResult(result);
+    } catch (e: any) {
+      alert(`Critique Error: ${e.message || 'Failed to run critique.'}`);
+      setShowCritiqueModal(false);
+    } finally {
+      setIsCritiquing(false);
+    }
+  };
+
+  const handleFixWithAI = () => {
+    setShowCritiqueModal(false);
+    if (!critiqueResult || critiqueResult.findings.length === 0) return;
+    const fixes = critiqueResult.findings
+      .map((f) => `- [${f.severity}] ${f.category}: ${f.title}${f.fix ? ` — ${f.fix}` : ''}`)
+      .join('\n');
+    handleGenerate(
+      `Apply fixes for the following design issues in the current design:\n${fixes}\n\nKeep the overall layout and branding but resolve every listed issue.`
+    );
+  };
+
+  const handleBuildShareLink = async (): Promise<string> => {
+    return encodeShareLink(activeSession);
+  };
+
+  const handleSaveSharedToDesigns = () => {
+    if (!sharedSession) return;
+    const imported: DesignSession = {
+      ...sharedSession,
+      id: `session-${Date.now()}`,
+      title: `${sharedSession.title} (imported)`,
+      updatedAt: Date.now(),
+    };
+    const updated = [imported, ...sessions];
+    setSessions(updated);
+    saveSessions(updated);
+    clearShareHash();
+    setSharedSession(null);
+    handleSwitchSession(imported.id);
+  };
+
+  const handleExitSharedView = () => {
+    clearShareHash();
+    setSharedSession(null);
+  };
+
+  const handleAddPin = (pinData: Omit<PinComment, 'id' | 'createdAt'>) => {    const newPin: PinComment = {
       ...pinData,
       id: `pin-${Date.now()}`,
       createdAt: Date.now(),
@@ -212,9 +366,13 @@ export default function App() {
   };
 
   const handleUpdateCode = (newCode: string) => {
-    const updatedTurns = activeSession.turns.map((t, idx) =>
-      idx === activeSession.activeTurnIndex ? { ...t, codeHtml: newCode } : t
-    );
+    const updatedTurns = activeSession.turns.map((t, idx) => {
+      if (idx !== activeSession.activeTurnIndex) return t;
+      const directions = t.directions
+        ? t.directions.map((d, di) => (di === (t.activeDirection ?? 0) ? newCode : d))
+        : undefined;
+      return { ...t, codeHtml: newCode, directions };
+    });
 
     const updatedSessions = sessions.map((s) =>
       s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
@@ -232,6 +390,21 @@ export default function App() {
     saveSessions(updatedSessions);
   };
 
+  const handleSelectDirection = (directionIdx: number) => {
+    const turn = activeSession.turns[activeSession.activeTurnIndex];
+    if (!turn?.directions || !turn.directions[directionIdx]) return;
+    const updatedTurns = activeSession.turns.map((t, idx) =>
+      idx === activeSession.activeTurnIndex
+        ? { ...t, activeDirection: directionIdx, codeHtml: turn.directions![directionIdx] }
+        : t
+    );
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSession.id ? { ...s, turns: updatedTurns, updatedAt: Date.now() } : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+  };
+
   const handleUIKitGenerated = (kit: UIKitDecomposition) => {
     const updatedSessions = sessions.map((s) =>
       s.id === activeSession.id ? { ...s, uiKit: kit } : s
@@ -241,6 +414,9 @@ export default function App() {
   };
 
   const totalTokens = activeSession.turns.reduce((acc, t) => acc + (t.tokensCost || 0), 0);
+  const sharedTurn = sharedSession
+    ? sharedSession.turns[sharedSession.activeTurnIndex] || sharedSession.turns[0]
+    : undefined;
 
   const isLight = theme === 'light';
 
@@ -260,11 +436,68 @@ export default function App() {
         onOpenSessions={() => setShowSessionsDrawer(true)}
         onOpenDecompose={() => setShowDecomposeModal(true)}
         onOpenExport={() => setShowExportModal(true)}
+        onOpenShare={() => setShowShareModal(true)}
+        onOpenDesignSystems={() => setShowDesignSystemModal(true)}
+        activeDesignSystemName={activeDesignSystem?.name ?? null}
         theme={theme}
         onToggleTheme={toggleTheme}
+        onProviderChange={handleProviderChange}
+        onModelChange={handleModelChange}
       />
 
       {/* Main Workspace Stage */}
+      {sharedSession && sharedTurn ? (
+        /* Read-Only Shared Design View */
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className={`px-4 py-2.5 border-b flex items-center justify-between gap-3 z-20 shrink-0 ${
+            isLight
+              ? 'bg-gradient-to-r from-[#d97757]/15 to-transparent border-[#e6e1d7]'
+              : 'bg-gradient-to-r from-[#d97757]/25 to-transparent border-[#38342e]'
+          }`}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Link2 className="w-4 h-4 text-[#d97757] shrink-0" />
+              <span className={`text-xs font-medium truncate ${isLight ? 'text-[#92400e]' : 'text-[#e28566]'}`}>
+                Read-only shared design · {sharedSession.title}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleSaveSharedToDesigns}
+                className="px-3 py-1.5 rounded-lg bg-[#d97757] hover:bg-[#c66545] text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                Save to My Designs
+              </button>
+              <button
+                onClick={handleExitSharedView}
+                className={`p-1.5 rounded-lg border text-xs transition-colors ${
+                  isLight
+                    ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
+                    : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
+                }`}
+                title="Exit shared view"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden relative">
+            <PreviewCanvas
+              codeHtml={sharedTurn.codeHtml}
+              previewDevice={previewDevice}
+              pins={sharedTurn.pins || []}
+              onAddPin={() => {}}
+              onResolvePin={() => {}}
+              onTweakPrompt={() => {}}
+              isGenerating={false}
+              directions={sharedTurn.directions}
+              activeDirection={sharedTurn.activeDirection ?? 0}
+              readOnly
+              theme={theme}
+            />
+          </div>
+        </div>
+      ) : (
       <div className="flex-1 flex overflow-hidden relative">
         {/* Desktop / Large Screen Split View */}
         <div className="hidden lg:flex w-full h-full">
@@ -276,6 +509,8 @@ export default function App() {
             isGenerating={isGenerating}
             onDecompose={() => setShowDecomposeModal(true)}
             tokenCount={totalTokens}
+            variantCount={variantCount}
+            onVariantCountChange={setVariantCount}
             theme={theme}
           />
           <PreviewCanvas
@@ -286,6 +521,11 @@ export default function App() {
             onResolvePin={handleResolvePin}
             onTweakPrompt={handleGenerate}
             isGenerating={isGenerating}
+            directions={activeTurn.directions}
+            activeDirection={activeTurn.activeDirection ?? 0}
+            onSelectDirection={handleSelectDirection}
+            onCritique={handleCritique}
+            isCritiquing={isCritiquing}
             theme={theme}
           />
           {showCodeInspector && (
@@ -312,6 +552,11 @@ export default function App() {
                 onResolvePin={handleResolvePin}
                 onTweakPrompt={handleGenerate}
                 isGenerating={isGenerating}
+                directions={activeTurn.directions}
+                activeDirection={activeTurn.activeDirection ?? 0}
+                onSelectDirection={handleSelectDirection}
+                onCritique={handleCritique}
+                isCritiquing={isCritiquing}
                 theme={theme}
               />
             )}
@@ -324,6 +569,8 @@ export default function App() {
                 isGenerating={isGenerating}
                 onDecompose={() => setShowDecomposeModal(true)}
                 tokenCount={totalTokens}
+                variantCount={variantCount}
+                onVariantCountChange={setVariantCount}
                 theme={theme}
               />
             )}
@@ -373,6 +620,7 @@ export default function App() {
           </nav>
         </div>
       </div>
+      )}
 
       {/* Modals & Drawers */}
       <SettingsModal
@@ -408,6 +656,46 @@ export default function App() {
         codeHtml={activeTurn.codeHtml}
         activeSession={activeSession}
         uiKit={activeSession.uiKit}
+        previewDevice={previewDevice}
+        theme={theme}
+      />
+      <DesignSystemModal
+        isOpen={showDesignSystemModal}
+        onClose={() => setShowDesignSystemModal(false)}
+        designSystems={designSystems}
+        activeId={activeDesignSystemId}
+        onSaveSystems={handleSaveDesignSystems}
+        onSetActive={handleSetActiveDesignSystem}
+        onDelete={handleDeleteDesignSystem}
+        theme={theme}
+      />
+      <CritiqueModal
+        isOpen={showCritiqueModal}
+        onClose={() => setShowCritiqueModal(false)}
+        critique={critiqueResult}
+        isCritiquing={isCritiquing}
+        onFixWithAI={handleFixWithAI}
+        theme={theme}
+      />
+      <ShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        onBuildLink={handleBuildShareLink}
+        theme={theme}
+      />
+      <UpdateModal
+        isOpen={showUpdateModal}
+        currentVersion={appVersion}
+        release={latestRelease}
+        onClose={() => setShowUpdateModal(false)}
+        onRetry={() => {
+          fetchLatestRelease().then((release) => {
+            if (release && hasUpdate(appVersion, release.version)) {
+              setLatestRelease(release);
+            }
+            setShowUpdateModal(true);
+          });
+        }}
         theme={theme}
       />
     </div>

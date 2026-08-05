@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Send, 
   Sparkles, 
@@ -10,19 +10,22 @@ import {
   ChevronUp,
   MessageSquare,
   LayoutGrid,
-  Plus
+  Plus,
+  X
 } from 'lucide-react';
-import { DesignTurn } from '../types';
+import { DesignTurn, ImageAttachment } from '../types';
 import { VisualLibraryPanel } from './VisualLibraryPanel';
 
 interface PromptSidebarProps {
   turns: DesignTurn[];
   activeTurnIndex: number;
   onSelectTurn: (index: number) => void;
-  onGenerate: (prompt: string) => Promise<void>;
+  onGenerate: (prompt: string, imageDataUrl?: string) => Promise<void>;
   isGenerating: boolean;
   onDecompose: () => void;
   tokenCount: number;
+  variantCount: number;
+  onVariantCountChange: (count: number) => void;
   theme?: 'light' | 'dark';
 }
 
@@ -34,19 +37,57 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
   isGenerating,
   onDecompose,
   tokenCount,
+  variantCount,
+  onVariantCountChange,
   theme = 'light',
 }) => {
   const [inputPrompt, setInputPrompt] = useState('');
   const [sidebarTab, setSidebarTab] = useState<'prompt' | 'patterns' | 'history'>('prompt');
   const [isDragOver, setIsDragOver] = useState(false);
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isLight = theme === 'light';
 
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Could not read image file'));
+      reader.readAsDataURL(file);
+    });
+
+  const addAttachment = async (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    if (attachments.length >= 1) return;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setAttachments([
+        {
+          id: `${file.name}-${Date.now()}`,
+          name: file.name,
+          dataUrl,
+          mimeType: file.type,
+        },
+      ]);
+    } catch (err) {
+      console.warn('Failed to attach image:', err);
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputPrompt.trim() || isGenerating) return;
-    onGenerate(inputPrompt.trim());
+    if ((!inputPrompt.trim() && attachments.length === 0) || isGenerating) return;
+    const imageDataUrl = attachments[0]?.dataUrl;
+    onGenerate(inputPrompt.trim(), imageDataUrl);
     setInputPrompt('');
+    setAttachments([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleInsertSnippet = (snippet: string) => {
@@ -59,6 +100,14 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+    const files: File[] = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) {
+      const imageFile = files.find((f) => f.type.startsWith('image/'));
+      if (imageFile) {
+        addAttachment(imageFile);
+        return;
+      }
+    }
     const snippet = e.dataTransfer.getData('text/plain');
     if (snippet) {
       handleInsertSnippet(snippet);
@@ -324,23 +373,88 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
             }}
           />
           <div className="absolute right-3 bottom-3.5 flex items-center gap-1.5 text-[#9e978a]">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) addAttachment(file);
+                e.target.value = '';
+              }}
+            />
             <button
               type="button"
-              className="p-1 hover:text-[#d97757] transition-colors"
-              title="Attach Wireframe / Screenshot"
-              onClick={() => alert('Image/Wireframe Attachment: Mention details in your prompt.')}
+              className={`p-1 rounded-lg transition-colors ${
+                attachments.length > 0 ? 'text-[#d97757]' : 'hover:text-[#d97757]'
+              }`}
+              title="Attach Wireframe / Screenshot (image)"
+              onClick={() => fileInputRef.current?.click()}
             >
               <ImageIcon className="w-4 h-4" />
             </button>
           </div>
         </div>
 
+        {attachments.length > 0 && (
+          <div className="flex items-center gap-2">
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className={`flex items-center gap-1.5 pl-1 pr-1.5 py-1 rounded-lg border text-[10px] font-medium ${
+                  isLight
+                    ? 'bg-[#d97757]/10 border-[#d97757]/30 text-[#92400e]'
+                    : 'bg-[#d97757]/20 border-[#d97757]/40 text-[#e28566]'
+                }`}
+              >
+                <img
+                  src={att.dataUrl}
+                  alt={att.name}
+                  className="w-6 h-6 rounded object-cover border border-black/10"
+                />
+                <span className="max-w-[110px] truncate">{att.name}</span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(att.id)}
+                  className="p-0.5 rounded hover:bg-black/10 text-current transition-colors"
+                  title="Remove attachment"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            <span className={`text-[10px] ${isLight ? 'text-[#827c70]' : 'text-[#8c8577]'}`}>
+              wireframe attached — model will match its layout
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-2">
-          <span className={`text-[10px] ${isLight ? 'text-[#827c70]' : 'text-[#8c8577]'}`}>
-            Press <kbd className={`px-1 py-0.5 rounded font-mono text-[9px] ${
-              isLight ? 'bg-[#e2ddd3]' : 'bg-[#2a2723]'
-            }`}>Enter</kbd> to generate
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-[10px] ${isLight ? 'text-[#827c70]' : 'text-[#8c8577]'}`}>
+              Directions
+            </span>
+            <div className="flex items-center p-0.5 rounded-lg bg-black/5 dark:bg-white/10">
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => onVariantCountChange(n)}
+                  disabled={isGenerating}
+                  className={`w-6 h-6 rounded-md text-[10px] font-bold transition-all disabled:opacity-50 ${
+                    variantCount === n
+                      ? 'bg-[#d97757] text-white shadow-sm'
+                      : isLight
+                      ? 'text-[#736e65] hover:text-[#22201d]'
+                      : 'text-[#9e978a] hover:text-[#f4f0ea]'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
           <button
             type="submit"
             disabled={!inputPrompt.trim() || isGenerating}
@@ -354,7 +468,7 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
             ) : (
               <>
                 <Send className="w-3.5 h-3.5" />
-                <span>Generate</span>
+                <span>{variantCount > 1 ? `Generate ${variantCount}` : 'Generate'}</span>
               </>
             )}
           </button>

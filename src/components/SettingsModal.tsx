@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Key, HelpCircle, RefreshCw, Sparkles, Check, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { BYOKConfig, AIProvider } from '../types';
 import { fetchLiveModels } from '../lib/ai';
+import {
+  PROVIDER_LIST,
+  getProviderDefinition,
+  getCuratedModels,
+  getCachedModels,
+  isKeyConfigured,
+} from '../lib/providers';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -28,6 +35,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (isOpen) {
       setConfig(byok);
       setSavedSuccess(false);
+      setFetchedModels(getCachedModels(byok) || []);
+      setFetchError(null);
     }
   }, [isOpen, byok]);
 
@@ -35,16 +44,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const isLight = theme === 'light';
 
-  const handleFetchModels = async () => {
+  const refreshModels = useCallback(async (cfg: BYOKConfig) => {
     setIsFetchingModels(true);
     setFetchError(null);
     try {
-      const liveModels = await fetchLiveModels(config);
+      const liveModels = await fetchLiveModels(cfg);
       if (liveModels.length > 0) {
         setFetchedModels(liveModels);
-        if (!liveModels.some((m) => m.value === config.selectedModel)) {
-          setConfig((prev) => ({ ...prev, selectedModel: liveModels[0].value }));
-        }
       } else {
         setFetchError('No live models returned by provider API.');
       }
@@ -52,6 +58,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setFetchError(err?.message || 'Could not fetch live models. Check API key/URL or CORS.');
     } finally {
       setIsFetchingModels(false);
+    }
+  }, []);
+
+  const handleFetchModels = () => {
+    refreshModels(config);
+  };
+
+  const handleProviderChange = (pId: AIProvider) => {
+    const def = getProviderDefinition(pId);
+    const next = { ...config, provider: pId, selectedModel: def.defaultModel };
+    setConfig(next);
+    setFetchError(null);
+    setFetchedModels(getCachedModels(next) || []);
+    if (isKeyConfigured(next, pId)) {
+      refreshModels(next);
     }
   };
 
@@ -97,105 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }, 800);
   };
 
-  const getModelOptions = (provider: AIProvider) => {
-    switch (provider) {
-      case 'gemini':
-        return [
-          { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Recommended - Ultra Fast)' },
-          { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
-          { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (High Quality Reasoning)' },
-          { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
-        ];
-      case 'openai':
-        return [
-          { value: 'gpt-4o', label: 'GPT-4o (Omni High Quality)' },
-          { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-          { value: 'o3-mini', label: 'O3 Mini Reasoning' },
-          { value: 'o1', label: 'O1 Reasoning' },
-        ];
-      case 'anthropic':
-        return [
-          { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
-          { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-          { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus' },
-        ];
-      case 'groq':
-        return [
-          { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq LPU Fast)' },
-          { value: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill 70B (Groq)' },
-          { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
-          { value: 'gemma2-9b-it', label: 'Gemma 2 9B' },
-        ];
-      case 'deepseek':
-        return [
-          { value: 'deepseek-chat', label: 'DeepSeek-V3 (deepseek-chat)' },
-          { value: 'deepseek-reasoner', label: 'DeepSeek-R1 (deepseek-reasoner)' },
-        ];
-      case 'mistral':
-        return [
-          { value: 'mistral-large-latest', label: 'Mistral Large' },
-          { value: 'codestral-latest', label: 'Codestral (Coding Specialist)' },
-          { value: 'pixtral-large-latest', label: 'Pixtral Large' },
-          { value: 'mistral-small-latest', label: 'Mistral Small' },
-        ];
-      case 'together':
-        return [
-          { value: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Llama 3.3 70B Turbo' },
-          { value: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1 (Together)' },
-          { value: 'Qwen/Qwen2.5-72B-Instruct-Turbo', label: 'Qwen 2.5 72B Turbo' },
-        ];
-      case 'xai':
-        return [
-          { value: 'grok-2-latest', label: 'xAI Grok 2' },
-          { value: 'grok-beta', label: 'xAI Grok Beta' },
-        ];
-      case 'openrouter':
-        return [
-          { value: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet (OpenRouter)' },
-          { value: 'openai/gpt-4o', label: 'GPT-4o (OpenRouter)' },
-          { value: 'deepseek/deepseek-r1', label: 'DeepSeek R1 (OpenRouter)' },
-          { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash (OpenRouter)' },
-          { value: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B (OpenRouter)' },
-          { value: 'qwen/qwen-2.5-coder-32b-instruct', label: 'Qwen 2.5 Coder 32B (OpenRouter)' },
-        ];
-      case 'opencodezen':
-        return [
-          { value: 'opencode-zen-1', label: 'OpenCode Zen 1' },
-          { value: 'opencode-coder', label: 'OpenCode Coder' },
-          { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet (OpenCode)' },
-          { value: 'deepseek-r1', label: 'DeepSeek R1 (OpenCode)' },
-          { value: 'gpt-4o', label: 'GPT-4o (OpenCode)' },
-        ];
-      case 'ollama':
-        return [
-          { value: 'llama3.2', label: 'Llama 3.2 (Local Ollama)' },
-          { value: 'deepseek-r1', label: 'DeepSeek R1 (Local Ollama)' },
-          { value: 'qwen2.5-coder', label: 'Qwen 2.5 Coder (Local Ollama)' },
-          { value: 'mistral', label: 'Mistral (Local Ollama)' },
-        ];
-      case 'custom':
-        return [
-          { value: 'custom-model', label: 'Custom Endpoint / Proxy Model' },
-        ];
-      default:
-        return [];
-    }
-  };
-
-  const providersList: { id: AIProvider; label: string; tag: string }[] = [
-    { id: 'gemini', label: 'Gemini', tag: 'Google AI' },
-    { id: 'openrouter', label: 'OpenRouter', tag: 'Multi-Model' },
-    { id: 'opencodezen', label: 'OpenCode Zen', tag: 'OpenCode' },
-    { id: 'openai', label: 'OpenAI', tag: 'GPT-4o' },
-    { id: 'anthropic', label: 'Anthropic', tag: 'Claude 3.5' },
-    { id: 'groq', label: 'Groq', tag: 'Ultra-Fast' },
-    { id: 'deepseek', label: 'DeepSeek', tag: 'V3 / R1' },
-    { id: 'mistral', label: 'Mistral', tag: 'Codestral' },
-    { id: 'together', label: 'Together', tag: 'Llama 3.3' },
-    { id: 'xai', label: 'xAI', tag: 'Grok 2' },
-    { id: 'ollama', label: 'Ollama', tag: 'Local AI' },
-    { id: 'custom', label: 'Custom', tag: 'OpenAI API' },
-  ];
+  const providersList = PROVIDER_LIST;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -247,16 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => {
-                    const opts = getModelOptions(p.id);
-                    setFetchedModels([]);
-                    setFetchError(null);
-                    setConfig({
-                      ...config,
-                      provider: p.id,
-                      selectedModel: opts[0]?.value || '',
-                    });
-                  }}
+                  onClick={() => handleProviderChange(p.id)}
                   className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all border text-left flex flex-col justify-between ${
                     config.provider === p.id
                       ? 'bg-[#d97757] text-white border-[#c66545] shadow-sm'
@@ -516,30 +430,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
-            <select
-              value={config.selectedModel}
-              onChange={(e) => setConfig({ ...config, selectedModel: e.target.value })}
-              className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:border-[#d97757] ${
-                isLight ? 'bg-white border-[#ded8cc] text-[#22201d]' : 'bg-[#181715] border-[#38342e] text-[#f4f0ea]'
-              }`}
-            >
-              {fetchedModels.length > 0 ? (
-                <optgroup label="Live Fetched Models">
-                  {fetchedModels.map((m) => (
+            {config.provider === 'custom' ? (
+              <>
+                <input
+                  list="gia-model-list"
+                  value={config.selectedModel}
+                  onChange={(e) => setConfig({ ...config, selectedModel: e.target.value })}
+                  placeholder="Type a model name (freeform)..."
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono-claude focus:outline-none focus:border-[#d97757] ${
+                    isLight ? 'bg-white border-[#ded8cc] text-[#22201d]' : 'bg-[#181715] border-[#38342e] text-[#f4f0ea]'
+                  }`}
+                />
+                <datalist id="gia-model-list">
+                  {[...fetchedModels, ...getCuratedModels(config.provider)].map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </datalist>
+              </>
+            ) : (
+              <select
+                value={config.selectedModel}
+                onChange={(e) => setConfig({ ...config, selectedModel: e.target.value })}
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs focus:outline-none focus:border-[#d97757] ${
+                  isLight ? 'bg-white border-[#ded8cc] text-[#22201d]' : 'bg-[#181715] border-[#38342e] text-[#f4f0ea]'
+                }`}
+              >
+                {fetchedModels.length > 0 ? (
+                  <optgroup label="Live Models (fetched from provider)">
+                    {fetchedModels.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                <optgroup label="Curated Fallback">
+                  {getCuratedModels(config.provider).map((m) => (
                     <option key={m.value} value={m.value}>
                       {m.label}
                     </option>
                   ))}
                 </optgroup>
-              ) : null}
-              <optgroup label="Curated Defaults">
-                {getModelOptions(config.provider).map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
+              </select>
+            )}
 
             {fetchError && (
               <p className="text-[11px] text-amber-600 font-mono mt-1">

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Download, FileCode, Archive, FileJson, Copy, Check, X } from 'lucide-react';
+import { Download, FileCode, Archive, FileJson, Copy, Check, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 import JSZip from 'jszip';
-import { DesignSession, UIKitDecomposition } from '../types';
+import { DesignSession, UIKitDecomposition, PreviewDevice } from '../types';
+import { captureDesignPng } from '../lib/screenshot';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface ExportModalProps {
   codeHtml: string;
   activeSession: DesignSession;
   uiKit?: UIKitDecomposition;
+  previewDevice: PreviewDevice;
   theme?: 'light' | 'dark';
 }
 
@@ -18,10 +20,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   codeHtml,
   activeSession,
   uiKit,
+  previewDevice,
   theme = 'light',
 }) => {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [pngBusy, setPngBusy] = useState(false);
+  const [pngError, setPngError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -92,6 +97,27 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     navigator.clipboard.writeText(codeHtml);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleExportPng = async () => {
+    setPngBusy(true);
+    setPngError(null);
+    try {
+      const blob = await captureDesignPng(codeHtml, previewDevice);
+      const safeTitle = activeSession.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeTitle}-${previewDevice}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setPngError(e.message || 'Screenshot export failed.');
+    } finally {
+      setPngBusy(false);
+    }
   };
 
   return (
@@ -181,6 +207,35 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </div>
             <Download className="w-4 h-4 text-gray-400 group-hover:text-[#d97757]" />
           </button>
+
+          {/* PNG Screenshot */}
+          <button
+            onClick={handleExportPng}
+            disabled={pngBusy}
+            className={`w-full p-3.5 rounded-xl border flex items-center justify-between text-left transition-all group ${
+              isLight
+                ? 'bg-white hover:bg-[#f4f0e8] border-[#ded8cc]'
+                : 'bg-[#181715] hover:bg-[#2a2723] border-[#38342e]'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-[#d97757]/15 text-[#d97757] group-hover:bg-[#d97757] group-hover:text-white transition-colors">
+                {pngBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-5 h-5" />}
+              </div>
+              <div>
+                <span className="font-semibold block text-xs">PNG Screenshot ({previewDevice})</span>
+                <span className={`text-[11px] ${isLight ? 'text-[#827c70]' : 'text-[#8c8577]'}`}>
+                  Renders the live preview at {previewDevice} size for share/mockups
+                </span>
+              </div>
+            </div>
+            <Download className="w-4 h-4 text-gray-400 group-hover:text-[#d97757]" />
+          </button>
+          {pngError && (
+            <p className={`text-[11px] font-mono px-1 ${isLight ? 'text-amber-700' : 'text-amber-400'}`}>
+              ⚠️ {pngError}
+            </p>
+          )}
 
           {/* Copy Code */}
           <button

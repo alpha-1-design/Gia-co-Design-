@@ -1,8 +1,10 @@
-import { BYOKConfig, DesignSession } from '../types';
+import { BYOKConfig, DesignSession, DesignSystem } from '../types';
 
 const BYOK_KEY = 'open_codesign_byok_config';
 const SESSIONS_KEY = 'open_codesign_sessions';
 const ACTIVE_SESSION_ID_KEY = 'open_codesign_active_session_id';
+const DESIGN_SYSTEMS_KEY = 'open_codesign_design_systems';
+const ACTIVE_DESIGN_SYSTEM_KEY = 'open_codesign_active_design_system_id';
 
 export const DEFAULT_BYOK_CONFIG: BYOKConfig = {
   provider: 'gemini',
@@ -20,7 +22,7 @@ export const DEFAULT_BYOK_CONFIG: BYOKConfig = {
   ollamaBaseUrl: 'http://localhost:11434/v1',
   customApiKey: '',
   customBaseUrl: 'https://api.openai.com/v1',
-  selectedModel: 'gemini-2.0-flash',
+  selectedModel: 'gemini-2.5-flash',
   systemPrompt: `You are an expert AI UI/UX designer and frontend engineer. 
 Your task is to generate complete, modern, beautifully styled, responsive HTML/CSS/JS components or web applications.
 Always use Tailwind CSS (via CDN <script src="https://cdn.tailwindcss.com"></script>) and Lucide Icons or standard SVG icons.
@@ -137,5 +139,47 @@ export function setActiveSessionId(id: string): void {
     localStorage.setItem(ACTIVE_SESSION_ID_KEY, id);
   } catch (e) {
     console.error('Failed to save active session ID', e);
+  }
+}
+
+export function loadDesignSystems(): DesignSystem[] {
+  try {
+    const raw = localStorage.getItem(DESIGN_SYSTEMS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error('Failed to load design systems', e);
+  }
+  return [];
+}
+
+export function saveDesignSystems(systems: DesignSystem[]): void {
+  try {
+    localStorage.setItem(DESIGN_SYSTEMS_KEY, JSON.stringify(systems));
+  } catch (e) {
+    console.error('Failed to save design systems', e);
+  }
+}
+
+export function getActiveDesignSystemId(): string | null {
+  try {
+    return localStorage.getItem(ACTIVE_DESIGN_SYSTEM_KEY);
+  } catch (e) {
+    console.error('Failed to load active design system ID', e);
+    return null;
+  }
+}
+
+export function setActiveDesignSystemId(id: string | null): void {
+  try {
+    if (id) {
+      localStorage.setItem(ACTIVE_DESIGN_SYSTEM_KEY, id);
+    } else {
+      localStorage.removeItem(ACTIVE_DESIGN_SYSTEM_KEY);
+    }
+  } catch (e) {
+    console.error('Failed to save active design system ID', e);
   }
 }

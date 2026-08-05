@@ -1,7 +1,10 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import {readFileSync} from 'fs';
 import {defineConfig} from 'vite';
+
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 
 export default defineConfig(() => {
   return {
@@ -10,6 +13,10 @@ export default defineConfig(() => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
+    },
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __APP_REPO__: JSON.stringify('alpha-1-design/Gia-co-Design-'),
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
