@@ -40,10 +40,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [isOpen, byok]);
 
-  if (!isOpen) return null;
-
-  const isLight = theme === 'light';
-
   const refreshModels = useCallback(async (cfg: BYOKConfig) => {
     setIsFetchingModels(true);
     setFetchError(null);
@@ -60,6 +56,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsFetchingModels(false);
     }
   }, []);
+
+  if (!isOpen) return null;
+
+  const isLight = theme === 'light';
 
   const handleFetchModels = () => {
     refreshModels(config);
