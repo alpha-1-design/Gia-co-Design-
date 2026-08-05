@@ -7,7 +7,9 @@ import {defineConfig} from 'vite';
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 
 export default defineConfig(() => {
+  const base = process.env.BASE_PATH || './';
   return {
+    base,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
