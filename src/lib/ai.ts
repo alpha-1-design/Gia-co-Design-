@@ -5,7 +5,25 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
-import { BYOKConfig, UIKitDecomposition, UIKitFile, ParityCheck, DesignCritique, CritiqueFinding, PreviewDevice } from '../types';
+import { 
+  BYOKConfig, 
+  UIKitDecomposition, 
+  UIKitFile, 
+  ParityCheck, 
+  DesignCritique, 
+  CritiqueFinding, 
+  PreviewDevice,
+  DesignToken,
+  ExportPreset,
+  AutoLayoutConfig,
+  ConstraintConfig,
+  ResponsiveBreakpoint,
+  ComponentVariant,
+  InteractiveHotspot,
+  AnimationPreset,
+  AccessibilityReport,
+  AccessibilityIssue
+} from '../types';
 import { DEVICE_VIEWPORTS } from './deviceViewports';
 import {
   ProviderModel,
@@ -593,4 +611,553 @@ Return 4-10 findings total.`;
     tokensUsed: Math.round(prompt.length / 4 + rawJson.length / 4),
     generatedAt: Date.now(),
   };
+}
+
+export async function generateInteractivePrototype(
+  sourceHtml: string,
+  byok: BYOKConfig,
+  device?: PreviewDevice
+): Promise<{ nodes: Array<{ id: string; label: string; x: number; y: number }>; links: Array<{ fromNodeId: string; toNodeId: string; triggerArea?: { x: number; y: number; width: number; height: number }; label?: string }> }> {
+  const prompt = `Analyze this HTML design and identify all interactive elements (buttons, links, navigation items, form inputs, cards that could be clickable). 
+Create a prototype flow diagram showing how a user would navigate through different screens/states.
+
+For each screen/state, define:
+- A node with position coordinates (x, y on a 1000x1000 canvas)
+- A descriptive label (e.g., "Home Screen", "Login Form", "Product Details")
+
+For each interaction, define:
+- Source node ID
+- Target node ID  
+- Trigger area description (optional)
+- Link label describing the action (e.g., "Click Login", "Navigate to Cart")
+
+Source HTML:
+\`\`\`html
+${sourceHtml.slice(0, 12000)}
+\`\`\`
+
+OUTPUT FORMAT (strict JSON):
+\`\`\`json
+{
+  "nodes": [
+    { "id": "screen-1", "label": "Home Screen", "x": 100, "y": 100 },
+    { "id": "screen-2", "label": "Login Modal", "x": 400, "y": 100 }
+  ],
+  "links": [
+    { "fromNodeId": "screen-1", "toNodeId": "screen-2", "triggerArea": {"x": 50, "y": 200, "width": 120, "height": 40}, "label": "Click Login Button" }
+  ]
+}
+\`\`\`
+
+Return 3-8 nodes and corresponding links based on the complexity of the design.`;
+
+  let rawJson = '';
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (pInfo.provider === 'gemini') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Gemini API Key missing');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
+      contents: prompt,
+    });
+    rawJson = response.text || '';
+  } else if (pInfo.provider === 'anthropic') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Anthropic API Key missing');
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': cleanKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: resolveModelName('anthropic', byok.selectedModel, pInfo.defaultModel),
+        max_tokens: 2048,
+        system: 'You are a UX prototyping expert. Always respond with valid JSON only.',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(`Anthropic Error (${res.status}): ${errJson?.error?.message || res.statusText}`);
+    }
+    const data = await res.json();
+    rawJson = data.content?.[0]?.text || '';
+  } else {
+    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
+    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const cleanKey = cleanApiKey(userApiKey);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cleanKey && cleanKey !== 'ollama') {
+      headers['Authorization'] = `Bearer ${cleanKey}`;
+    }
+    if (pInfo.provider === 'openrouter') {
+      headers['HTTP-Referer'] = window.location.origin;
+      headers['X-Title'] = 'Gia-co-Design';
+    }
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.5,
+      }),
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(`${pInfo.provider.toUpperCase()} Error (${res.status}): ${errJson?.error?.message || errJson?.detail || res.statusText}`);
+    }
+    const data = await res.json();
+    rawJson = data.choices?.[0]?.message?.content || '';
+  }
+
+  try {
+    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
+    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
+    const parsed = JSON.parse(cleanJsonStr);
+    return {
+      nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+      links: Array.isArray(parsed.links) ? parsed.links : [],
+    };
+  } catch (e) {
+    console.error('Failed to parse prototype JSON:', e);
+    return { nodes: [], links: [] };
+  }
+}
+
+export async function generateComponentFromPrompt(
+  prompt: string,
+  category: string,
+  byok: BYOKConfig,
+  designSystemHtml?: string
+): Promise<{ codeHtml: string; name: string; description: string; tags: string[] }> {
+  const fullPrompt = `${byok.systemPrompt}\n\nGenerate a reusable UI component based on the following request.\n\nComponent Category: ${category}\nUser Request: ${prompt}\n\nThe component should be:\n- Self-contained with all necessary HTML, CSS (Tailwind), and minimal JS\n- Easily copy-pasteable into other projects\n- Responsive and accessible\n- Following modern design patterns\n\n${designSystemHtml ? `Use this design system for colors, fonts, and spacing:\n\`\`\`html\n${designSystemHtml.slice(0, 8000)}\n\`\`\`\n\n` : ''}\nReturn the component as a complete HTML file with inline styles.`;
+
+  let rawText = '';
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (pInfo.provider === 'gemini') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Gemini API Key missing');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
+      contents: fullPrompt,
+    });
+    rawText = response.text || '';
+  } else if (pInfo.provider === 'anthropic') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Anthropic API Key missing');
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': cleanKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: resolveModelName('anthropic', byok.selectedModel, pInfo.defaultModel),
+        max_tokens: 4096,
+        system: byok.systemPrompt,
+        messages: [{ role: 'user', content: fullPrompt }],
+      }),
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(`Anthropic Error (${res.status}): ${errJson?.error?.message || res.statusText}`);
+    }
+    const data = await res.json();
+    rawText = data.content?.[0]?.text || '';
+  } else {
+    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
+    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const cleanKey = cleanApiKey(userApiKey);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cleanKey && cleanKey !== 'ollama') {
+      headers['Authorization'] = `Bearer ${cleanKey}`;
+    }
+    if (pInfo.provider === 'openrouter') {
+      headers['HTTP-Referer'] = window.location.origin;
+      headers['X-Title'] = 'Gia-co-Design';
+    }
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
+        messages: [{ role: 'user', content: fullPrompt }],
+        temperature: 0.7,
+      }),
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(`${pInfo.provider.toUpperCase()} Error (${res.status}): ${errJson?.error?.message || errJson?.detail || res.statusText}`);
+    }
+    const data = await res.json();
+    rawText = data.choices?.[0]?.message?.content || '';
+  }
+
+  const htmlMatch = rawText.match(/```html\s*([\s\S]*?)\s*```/i);
+  const cleanHtml = htmlMatch ? htmlMatch[1].trim() : rawText.trim();
+
+  // Extract metadata from the response
+  const nameMatch = rawText.match(/##\s*Name:\s*(.+?)(?:\n|$)/i);
+  const descMatch = rawText.match(/##\s*Description:\s*(.+?)(?:\n|$)/i);
+  const tagsMatch = rawText.match(/##\s*Tags:\s*(.+?)(?:\n|$)/i);
+
+  return {
+    codeHtml: cleanHtml,
+    name: nameMatch ? nameMatch[1].trim() : `${category} Component`,
+    description: descMatch ? descMatch[1].trim() : 'Generated UI component',
+    tags: tagsMatch ? tagsMatch[1].split(',').map((t: string) => t.trim()) : [category.toLowerCase()],
+  };
+}
+
+export async function extractDesignTokens(sourceHtml: string, byok: BYOKConfig): Promise<{ tokens: DesignToken[]; tokensEstimate: number }> {
+  const prompt = `Analyze the following HTML/Tailwind design and extract all design tokens. Identify colors, spacing values, typography settings, border radii, shadows, and breakpoints.
+
+Source HTML:
+\`\`\`html
+${sourceHtml.slice(0, 15000)}
+\`\`\`
+
+Extract tokens in this JSON format:
+\`\`\`json
+{
+  "tokens": [
+    { "name": "color.primary", "value": "#d97757", "type": "color", "category": "brand" },
+    { "name": "spacing.md", "value": "16px", "type": "spacing", "category": "layout" },
+    { "name": "font.heading", "value": "Georgia, serif", "type": "typography", "category": "fonts" }
+  ]
+}
+\`\`\`
+
+Return ALL tokens found. Group by type and category.`;
+
+  let rawJson = '';
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (pInfo.provider === 'gemini') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Gemini API Key missing');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
+      contents: prompt,
+    });
+    rawJson = response.text || '';
+  } else {
+    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
+    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const cleanKey = cleanApiKey(userApiKey);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cleanKey && cleanKey !== 'ollama') {
+      headers['Authorization'] = `Bearer ${cleanKey}`;
+    }
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await res.json();
+    rawJson = data.choices?.[0]?.message?.content || '';
+  }
+
+  try {
+    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
+    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
+    const parsed = JSON.parse(cleanJsonStr);
+    return {
+      tokens: Array.isArray(parsed.tokens) ? parsed.tokens : [],
+      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+    };
+  } catch (e) {
+    console.error('Failed to parse tokens JSON:', e);
+    return { tokens: [], tokensEstimate: 0 };
+  }
+}
+
+export async function generateAccessibilityReport(sourceHtml: string, byok: BYOKConfig): Promise<{ report: AccessibilityReport; tokensEstimate: number }> {
+  const prompt = `Perform a comprehensive WCAG 2.1 accessibility audit on the following HTML design. Check for color contrast, keyboard navigation, screen reader compatibility, ARIA labels, focus states, and semantic HTML structure.
+
+Source HTML:
+\`\`\`html
+${sourceHtml.slice(0, 15000)}
+\`\`\`
+
+Return results in this JSON format:
+\`\`\`json
+{
+  "wcagLevel": "AA",
+  "score": 85,
+  "issues": [
+    {
+      "id": "acc-1",
+      "severity": "serious",
+      "rule": "color-contrast",
+      "element": "button.submit-btn",
+      "description": "Text contrast ratio 3.2:1 is below WCAG AA requirement of 4.5:1",
+      "suggestion": "Darken button text color to #5a4a3f or lighter background",
+      "wcagCriteria": "1.4.3"
+    }
+  ],
+  "passedChecks": ["form-labels", "image-alt-text", "heading-hierarchy"]
+}
+\`\`\`
+
+Be thorough and specific. Include ALL issues found with actionable suggestions.`;
+
+  let rawJson = '';
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (pInfo.provider === 'gemini') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Gemini API Key missing');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
+      contents: prompt,
+    });
+    rawJson = response.text || '';
+  } else {
+    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
+    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const cleanKey = cleanApiKey(userApiKey);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cleanKey && cleanKey !== 'ollama') {
+      headers['Authorization'] = `Bearer ${cleanKey}`;
+    }
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+      }),
+    });
+    const data = await res.json();
+    rawJson = data.choices?.[0]?.message?.content || '';
+  }
+
+  try {
+    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
+    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
+    const parsed = JSON.parse(cleanJsonStr);
+    return {
+      report: {
+        wcagLevel: parsed.wcagLevel || 'A',
+        score: parsed.score || 0,
+        issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+        passedChecks: Array.isArray(parsed.passedChecks) ? parsed.passedChecks : [],
+      },
+      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+    };
+  } catch (e) {
+    console.error('Failed to parse accessibility JSON:', e);
+    return {
+      report: { wcagLevel: 'A', score: 0, issues: [], passedChecks: [] },
+      tokensEstimate: 0,
+    };
+  }
+}
+
+export async function convertToPlatform(sourceHtml: string, platform: ExportPreset, byok: BYOKConfig): Promise<{ code: string; files: Array<{ path: string; content: string }>; tokensEstimate: number }> {
+  const platformInstructions: Record<string, string> = {
+    'react-native': 'Convert to React Native with StyleSheet and native components (View, Text, Image, ScrollView). Use flexbox for layout. Replace div with View, span/p with Text, img with Image. Convert Tailwind classes to StyleSheet entries.',
+    'flutter': 'Convert to Flutter Dart code using Material/Cupertino widgets. Use Container, Row, Column, Stack for layout. Convert colors to Color.fromRGBO(). Use TextStyle for typography.',
+    'swiftui': 'Convert to SwiftUI Swift code. Use VStack, HStack, ZStack for layout. Use Text, Image, Button native components. Apply modifiers for styling. Use @State for interactivity.',
+    'jetpack-compose': 'Convert to Jetpack Compose Kotlin code. Use Column, Row, Box for layout. Use Text, Image, Button composables. Use Modifier for styling. Use remember/useState for state.',
+    'vue': 'Convert to Vue 3 Composition API with <script setup>. Keep Tailwind CSS. Wrap in single-file component structure with template, script, style sections.',
+    'svelte': 'Convert to Svelte component. Keep Tailwind CSS. Use let: for variables, on: for events. Structure as .svelte file with script, markup, style sections.',
+    'angular': 'Convert to Angular component with TypeScript. Use @Component decorator. Keep Tailwind CSS. Use *ngIf, *ngFor for conditionals/lists. Implement OnInit lifecycle.',
+  };
+
+  const prompt = `Convert the following HTML/Tailwind design to ${platform.platform.toUpperCase()}${platform.framework ? ` (${platform.framework})` : ''}.
+
+${platformInstructions[platform.platform] || 'Convert to the target platform while preserving visual design and functionality.'}
+
+Source HTML:
+\`\`\`html
+${sourceHtml.slice(0, 12000)}
+\`\`\`
+
+Output Requirements:
+- Platform: ${platform.platform}
+- Styling: ${platform.stylingApproach}
+- Component Format: ${platform.componentFormat}
+- Include Tokens: ${platform.includeTokens ? 'Yes' : 'No'}
+- Responsive Variants: ${platform.includeResponsiveVariants ? 'Yes' : 'No'}
+- Dark Mode Support: ${platform.includeDarkMode ? 'Yes' : 'No'}
+- Output Structure: ${platform.outputStructure}
+
+Return a JSON object with:
+{
+  "mainCode": "...complete component code...",
+  "files": [
+    { "path": "src/components/Component.tsx", "content": "..." },
+    { "path": "src/tokens/design-tokens.json", "content": "..." }
+  ]
+}`;
+
+  let rawJson = '';
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (pInfo.provider === 'gemini') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Gemini API Key missing');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
+      contents: prompt,
+    });
+    rawJson = response.text || '';
+  } else {
+    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
+    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const cleanKey = cleanApiKey(userApiKey);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cleanKey && cleanKey !== 'ollama') {
+      headers['Authorization'] = `Bearer ${cleanKey}`;
+    }
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.5,
+      }),
+    });
+    const data = await res.json();
+    rawJson = data.choices?.[0]?.message?.content || '';
+  }
+
+  try {
+    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
+    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
+    const parsed = JSON.parse(cleanJsonStr);
+    
+    const files = Array.isArray(parsed.files) 
+      ? parsed.files 
+      : [{ path: `src/components/ExportedComponent.${platform.componentFormat}`, content: parsed.mainCode || '' }];
+    
+    return {
+      code: parsed.mainCode || '',
+      files,
+      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+    };
+  } catch (e) {
+    console.error('Failed to parse platform conversion JSON:', e);
+    return { code: '', files: [], tokensEstimate: 0 };
+  }
+}
+
+export async function generateAutoLayoutConfig(sourceHtml: string, byok: BYOKConfig): Promise<{ config: AutoLayoutConfig; tokensEstimate: number }> {
+  const prompt = `Analyze the following HTML/Tailwind design and infer the auto-layout configuration that would recreate it in a Figma-like system.
+
+Source HTML:
+\`\`\`html
+${sourceHtml.slice(0, 10000)}
+\`\`\`
+
+Determine:
+- Layout direction (horizontal/vertical stacking)
+- Alignment (start, center, end, stretch)
+- Justification (space-between, space-around, etc.)
+- Gap between elements
+- Padding on container
+- Whether items wrap
+
+Return JSON:
+\`\`\`json
+{
+  "enabled": true,
+  "direction": "vertical",
+  "alignItems": "stretch",
+  "justifyContent": "start",
+  "gap": 16,
+  "padding": { "top": 24, "right": 16, "bottom": 24, "left": 16 },
+  "wrap": false
+}
+\`\`\``;
+
+  let rawJson = '';
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (pInfo.provider === 'gemini') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Gemini API Key missing');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
+      contents: prompt,
+    });
+    rawJson = response.text || '';
+  } else {
+    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
+    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const cleanKey = cleanApiKey(userApiKey);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cleanKey && cleanKey !== 'ollama') {
+      headers['Authorization'] = `Bearer ${cleanKey}`;
+    }
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await res.json();
+    rawJson = data.choices?.[0]?.message?.content || '';
+  }
+
+  try {
+    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
+    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
+    const parsed = JSON.parse(cleanJsonStr);
+    return {
+      config: {
+        enabled: parsed.enabled ?? true,
+        direction: parsed.direction || 'vertical',
+        alignItems: parsed.alignItems || 'start',
+        justifyContent: parsed.justifyContent || 'start',
+        gap: parsed.gap || 0,
+        padding: parsed.padding || { top: 0, right: 0, bottom: 0, left: 0 },
+        wrap: parsed.wrap ?? false,
+      },
+      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+    };
+  } catch (e) {
+    console.error('Failed to parse auto-layout JSON:', e);
+    return {
+      config: {
+        enabled: true,
+        direction: 'vertical',
+        alignItems: 'start',
+        justifyContent: 'start',
+        gap: 0,
+        padding: { top: 0, right: 0, bottom: 0, left: 0 },
+        wrap: false,
+      },
+      tokensEstimate: 0,
+    };
+  }
 }
