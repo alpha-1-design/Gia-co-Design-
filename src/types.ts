@@ -65,6 +65,43 @@ export interface UIKitDecomposition {
   generatedAt: number;
 }
 
+export interface VersionSnapshot {
+  id: string;
+  turnIndex: number;
+  codeHtml: string;
+  timestamp: number;
+  label?: string;
+  isBookmarked: boolean;
+}
+
+export interface ComponentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: 'layout' | 'navigation' | 'form' | 'card' | 'hero' | 'footer' | 'modal' | 'other';
+  codeHtml: string;
+  thumbnail?: string;
+  tags: string[];
+  createdAt: number;
+  usageCount: number;
+}
+
+export interface PrototypeNode {
+  id: string;
+  turnId: string;
+  x: number;
+  y: number;
+  label: string;
+}
+
+export interface PrototypeLink {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  triggerArea?: { x: number; y: number; width: number; height: number };
+  label?: string;
+}
+
 export interface DesignTurn {
   id: string;
   role: 'user' | 'assistant';
@@ -76,6 +113,16 @@ export interface DesignTurn {
   modelUsed: string;
   tokensCost?: number;
   pins?: PinComment[];
+  versionSnapshots?: VersionSnapshot[];
+  prototypeNodes?: PrototypeNode[];
+  prototypeLinks?: PrototypeLink[];
+  autoLayoutConfig?: AutoLayoutConfig;
+  constraintConfig?: ConstraintConfig;
+  interactiveHotspots?: InteractiveHotspot[];
+  animationPresets?: AnimationPreset[];
+  componentVariants?: ComponentVariant[];
+  accessibilityReport?: AccessibilityReport;
+  designTokens?: DesignToken[];
 }
 
 export interface DesignSession {
@@ -86,6 +133,30 @@ export interface DesignSession {
   turns: DesignTurn[];
   activeTurnIndex: number;
   uiKit?: UIKitDecomposition;
+  branches?: string[]; // IDs of branched sessions
+  parentSessionId?: string;
+  parentTurnIndex?: number;
+  templateId?: string;
+}
+
+export interface AssetFile {
+  id: string;
+  name: string;
+  dataUrl: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: number;
+  optimizedDataUrl?: string;
+}
+
+export interface TemplateGalleryItem {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  previewHtml: string;
+  tags: string[];
+  complexity: 'beginner' | 'intermediate' | 'advanced';
 }
 
 export interface DesignSystem {
@@ -94,6 +165,102 @@ export interface DesignSystem {
   sourceHtml: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface DesignToken {
+  name: string;
+  value: string;
+  type: 'color' | 'spacing' | 'typography' | 'border' | 'shadow' | 'breakpoint';
+  category: string;
+  description?: string;
+}
+
+export interface ExportPreset {
+  id: string;
+  name: string;
+  platform: 'react-native' | 'flutter' | 'swiftui' | 'jetpack-compose' | 'web' | 'vue' | 'svelte' | 'angular';
+  framework?: string;
+  stylingApproach: 'tailwind' | 'styled-components' | 'css-modules' | 'inline' | 'native-styles' | 'tokens';
+  componentFormat: 'tsx' | 'jsx' | 'ts' | 'dart' | 'swift' | 'kt' | 'vue' | 'svelte';
+  includeTokens: boolean;
+  includeResponsiveVariants: boolean;
+  includeDarkMode: boolean;
+  outputStructure: 'flat' | 'component-folders' | 'atomic-design';
+}
+
+export interface AutoLayoutConfig {
+  enabled: boolean;
+  direction: 'horizontal' | 'vertical';
+  alignItems: 'start' | 'center' | 'end' | 'stretch';
+  justifyContent: 'start' | 'center' | 'end' | 'between' | 'around';
+  gap: number;
+  padding: { top: number; right: number; bottom: number; left: number };
+  wrap: boolean;
+}
+
+export interface ConstraintConfig {
+  horizontal: 'left' | 'right' | 'leftRight' | 'scale' | 'center';
+  vertical: 'top' | 'bottom' | 'topBottom' | 'scale' | 'center';
+  minWidth?: number;
+  maxWidth?: number;
+  minHeight?: number;
+  maxHeight?: number;
+}
+
+export interface ResponsiveBreakpoint {
+  name: string;
+  minWidth: number;
+  maxWidth?: number;
+  previewWidth: number;
+}
+
+export interface ComponentVariant {
+  id: string;
+  name: string;
+  codeHtml: string;
+  isActive: boolean;
+  properties: Record<string, any>;
+}
+
+export interface InteractiveHotspot {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  targetScreenId?: string;
+  action: 'navigate' | 'open-modal' | 'trigger-animation' | 'external-link';
+  url?: string;
+  animation?: string;
+  label?: string;
+}
+
+export interface AnimationPreset {
+  id: string;
+  name: string;
+  type: 'fade' | 'slide' | 'scale' | 'rotate' | 'bounce' | 'pulse' | 'shake';
+  duration: number;
+  delay?: number;
+  easing: 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  iterations?: number;
+  trigger: 'on-load' | 'on-hover' | 'on-click' | 'on-scroll';
+}
+
+export interface AccessibilityReport {
+  wcagLevel: 'A' | 'AA' | 'AAA';
+  score: number;
+  issues: AccessibilityIssue[];
+  passedChecks: string[];
+}
+
+export interface AccessibilityIssue {
+  id: string;
+  severity: 'critical' | 'serious' | 'moderate' | 'minor';
+  rule: string;
+  element: string;
+  description: string;
+  suggestion: string;
+  wcagCriteria: string;
 }
 
 export interface ImageAttachment {
