@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://alpha-1-design.github.io/Gia-co-Design-/sitemap.xml

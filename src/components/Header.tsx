@@ -12,7 +12,9 @@ import {
   Moon,
   Loader2,
   Palette,
-  Link2
+  Link2,
+  History,
+  Wand2
 } from 'lucide-react';
 import { PreviewDevice, BYOKConfig, AIProvider } from '../types';
 import { fetchLiveModels } from '../lib/ai';
@@ -37,6 +39,8 @@ interface HeaderProps {
   onOpenExport: () => void;
   onOpenShare: () => void;
   onOpenDesignSystems: () => void;
+  onOpenVersionHistory: () => void;
+  onOpenDesignTools: () => void;
   activeDesignSystemName?: string | null;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
@@ -57,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenExport,
   onOpenShare,
   onOpenDesignSystems,
+  onOpenVersionHistory,
+  onOpenDesignTools,
   activeDesignSystemName,
   theme,
   onToggleTheme,
@@ -262,6 +268,32 @@ export const Header: React.FC<HeaderProps> = ({
         >
           {isLight ? <Moon className="w-3.5 h-3.5 text-[#d97757]" /> : <Sun className="w-3.5 h-3.5 text-[#d97757]" />}
           <span className="hidden lg:inline">{isLight ? 'Dark' : 'Light'}</span>
+        </button>
+
+        <button
+          onClick={onOpenVersionHistory}
+          className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            isLight
+              ? 'bg-[#f0e9dd] hover:bg-[#e7dfd1] text-[#22201d] border-[#ded8cc]'
+              : 'bg-[#2e2a25] hover:bg-[#38332d] text-[#f4f0ea] border-[#3d3831]'
+          }`}
+          title="Version history &amp; branches"
+        >
+          <History className="w-3.5 h-3.5 text-[#d97757]" />
+          <span>History</span>
+        </button>
+
+        <button
+          onClick={onOpenDesignTools}
+          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            isLight
+              ? 'bg-[#f0e9dd] hover:bg-[#e7dfd1] text-[#22201d] border-[#ded8cc]'
+              : 'bg-[#2e2a25] hover:bg-[#38332d] text-[#f4f0ea] border-[#3d3831]'
+          }`}
+          title="Design tools: tokens, accessibility, layout, multi-platform export"
+        >
+          <Wand2 className="w-3.5 h-3.5 text-[#d97757]" />
+          <span>Tools</span>
         </button>
 
         <button

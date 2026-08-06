@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GitBranch, Clock, Bookmark, Trash2, ExternalLink, ChevronRight, Plus } from 'lucide-react';
+import { GitBranch, Clock, Bookmark, Trash2, ExternalLink, ChevronRight, Plus, X } from 'lucide-react';
 import { VersionSnapshot, DesignSession } from '../types';
 
 interface VersionHistoryModalProps {
@@ -86,8 +86,9 @@ export const VersionHistoryModal: React.FC<VersionHistoryModalProps> = ({
             className={`p-2 rounded-lg transition-colors ${
               isLight ? 'hover:bg-[#e6e1d7]' : 'hover:bg-[#38342e]'
             }`}
+            title="Close"
           >
-            <Trash2 className="w-5 h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 

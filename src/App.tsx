@@ -11,6 +11,8 @@ import { DesignSystemModal } from './components/DesignSystemModal';
 import { CritiqueModal } from './components/CritiqueModal';
 import { ShareModal } from './components/ShareModal';
 import { UpdateModal } from './components/UpdateModal';
+import { VersionHistoryModal } from './components/VersionHistoryModal';
+import { DesignToolsModal } from './components/DesignToolsModal';
 import { Capacitor } from '@capacitor/core';
 import { 
   BYOKConfig, 
@@ -21,7 +23,8 @@ import {
   UIKitDecomposition,
   AIProvider,
   DesignSystem,
-  DesignCritique
+  DesignCritique,
+  VersionSnapshot
 } from './types';
 import { 
   loadBYOKConfig, 
@@ -65,6 +68,8 @@ export default function App() {
   const [showCritiqueModal, setShowCritiqueModal] = useState(false);
   const [critiqueResult, setCritiqueResult] = useState<DesignCritique | null>(null);
   const [isCritiquing, setIsCritiquing] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showDesignTools, setShowDesignTools] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [sharedSession, setSharedSession] = useState<DesignSession | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -413,6 +418,109 @@ export default function App() {
     saveSessions(updatedSessions);
   };
 
+  // Version history: jump the active session to a given turn (a "version" is
+  // either an explicit snapshot or, by default, simply a turn in the session).
+  const handleSelectVersion = (turnIndex: number) => {
+    handleSelectTurn(turnIndex);
+    setShowVersionHistory(false);
+  };
+
+  // Branch: fork a new session containing only the turns up to and including
+  // turnIndex, so the person can explore a different direction from that
+  // point without losing the original timeline.
+  const handleCreateBranch = (turnIndex: number) => {
+    const sourceTurns = activeSession.turns.slice(0, turnIndex + 1);
+    if (sourceTurns.length === 0) return;
+    const branchedSession: DesignSession = {
+      ...activeSession,
+      id: `session-${Date.now()}`,
+      title: `${activeSession.title} (branch)`,
+      turns: sourceTurns.map((t) => ({ ...t })),
+      activeTurnIndex: sourceTurns.length - 1,
+      parentSessionId: activeSession.id,
+      parentTurnIndex: turnIndex,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const updated = [branchedSession, ...sessions];
+    setSessions(updated);
+    saveSessions(updated);
+    setActiveSessionIdState(branchedSession.id);
+    setActiveSessionId(branchedSession.id);
+    setShowVersionHistory(false);
+  };
+
+  // Bookmark: turns don't have an explicit VersionSnapshot until the person
+  // bookmarks them, at which point we materialize one so it's a durable,
+  // named entry in that turn's history rather than a synthetic UI-only row.
+  const handleBookmarkVersion = (versionId: string) => {
+    const updatedTurns = activeSession.turns.map((t, idx) => {
+      const existingSnaps = t.versionSnapshots || [];
+      const existingIdx = existingSnaps.findIndex((sn) => sn.id === versionId);
+      if (existingIdx >= 0) {
+        const updatedSnaps = existingSnaps.map((sn, i) =>
+          i === existingIdx ? { ...sn, isBookmarked: !sn.isBookmarked } : sn
+        );
+        return { ...t, versionSnapshots: updatedSnaps };
+      }
+      if (t.id === versionId) {
+        const newSnapshot: VersionSnapshot = {
+          id: `snap-${Date.now()}`,
+          turnIndex: idx,
+          codeHtml: t.codeHtml,
+          timestamp: t.timestamp,
+          label: `Turn ${idx + 1}`,
+          isBookmarked: true,
+        };
+        return { ...t, versionSnapshots: [...existingSnaps, newSnapshot] };
+      }
+      return t;
+    });
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+  };
+
+  const handleDeleteVersion = (versionId: string) => {
+    const updatedTurns = activeSession.turns.map((t) => ({
+      ...t,
+      versionSnapshots: (t.versionSnapshots || []).filter((sn) => sn.id !== versionId),
+    }));
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+  };
+
+  // Design Tools "Use as New Design": push a generated standalone component
+  // as a fresh turn, same path real generations take.
+  const handleInsertComponent = (html: string, label: string) => {
+    const newTurn: DesignTurn = {
+      id: `turn-${Date.now()}`,
+      role: 'assistant',
+      prompt: `Custom component: ${label}`,
+      codeHtml: html,
+      activeDirection: 0,
+      timestamp: Date.now(),
+      modelUsed: byok.selectedModel || 'gemini-2.5-flash',
+      tokensCost: 0,
+    };
+    const updatedTurns = [...activeSession.turns, newTurn];
+    const newActiveIdx = updatedTurns.length - 1;
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSession.id
+        ? { ...s, turns: updatedTurns, activeTurnIndex: newActiveIdx, updatedAt: Date.now() }
+        : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+    setShowDesignTools(false);
+    if (window.innerWidth < 1024) setMobileTab('preview');
+  };
+
   const totalTokens = activeSession.turns.reduce((acc, t) => acc + (t.tokensCost || 0), 0);
   const sharedTurn = sharedSession
     ? sharedSession.turns[sharedSession.activeTurnIndex] || sharedSession.turns[0]
@@ -438,6 +546,8 @@ export default function App() {
         onOpenExport={() => setShowExportModal(true)}
         onOpenShare={() => setShowShareModal(true)}
         onOpenDesignSystems={() => setShowDesignSystemModal(true)}
+        onOpenVersionHistory={() => setShowVersionHistory(true)}
+        onOpenDesignTools={() => setShowDesignTools(true)}
         activeDesignSystemName={activeDesignSystem?.name ?? null}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -676,6 +786,27 @@ export default function App() {
         isCritiquing={isCritiquing}
         onFixWithAI={handleFixWithAI}
         theme={theme}
+      />
+      {showVersionHistory && (
+        <VersionHistoryModal
+          session={activeSession}
+          currentTurnIndex={activeSession.activeTurnIndex}
+          onClose={() => setShowVersionHistory(false)}
+          onSelectVersion={handleSelectVersion}
+          onCreateBranch={handleCreateBranch}
+          onBookmarkVersion={handleBookmarkVersion}
+          onDeleteVersion={handleDeleteVersion}
+          theme={theme}
+        />
+      )}
+      <DesignToolsModal
+        isOpen={showDesignTools}
+        onClose={() => setShowDesignTools(false)}
+        sourceHtml={activeTurn?.codeHtml || null}
+        byok={byok}
+        designSystemHtml={activeDesignSystem?.sourceHtml}
+        theme={theme}
+        onInsertComponent={handleInsertComponent}
       />
       <ShareModal
         isOpen={showShareModal}
