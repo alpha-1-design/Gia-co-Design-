@@ -22,6 +22,7 @@ export const DEFAULT_BYOK_CONFIG: BYOKConfig = {
   ollamaBaseUrl: 'http://localhost:11434/v1',
   customApiKey: '',
   customBaseUrl: 'https://api.openai.com/v1',
+  vercelToken: '',
   selectedModel: 'gemini-2.5-flash',
   systemPrompt: `You are an expert AI UI/UX designer and frontend engineer. 
 Your task is to generate complete, modern, beautifully styled, responsive HTML/CSS/JS components or web applications.

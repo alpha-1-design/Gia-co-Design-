@@ -11,6 +11,8 @@ import {
   Check,
   Plus,
   AlertTriangle,
+  Rocket,
+  ExternalLink,
 } from 'lucide-react';
 import { BYOKConfig, DesignToken, AccessibilityReport, AutoLayoutConfig, ExportPreset } from '../types';
 import {
@@ -20,8 +22,9 @@ import {
   generateAutoLayoutConfig,
   convertToPlatform,
 } from '../lib/ai';
+import { deployToVercel } from '../lib/vercelDeploy';
 
-type Tab = 'component' | 'tokens' | 'a11y' | 'layout' | 'export';
+type Tab = 'component' | 'tokens' | 'a11y' | 'layout' | 'export' | 'deploy';
 
 interface DesignToolsModalProps {
   isOpen: boolean;
@@ -84,6 +87,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: 'a11y', label: 'Accessibility', icon: ShieldCheck },
   { id: 'layout', label: 'Layout', icon: LayoutTemplate },
   { id: 'export', label: 'Export Code', icon: FileCode2 },
+  { id: 'deploy', label: 'Deploy', icon: Rocket },
 ];
 
 function CopyButton({ text, isLight }: { text: string; isLight: boolean }) {
@@ -148,6 +152,12 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
   const [exportResult, setExportResult] = useState<{ code: string; files: Array<{ path: string; content: string }> } | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  // Deploy state
+  const [deployTarget, setDeployTarget] = useState<'preview' | 'production'>('preview');
+  const [deployResult, setDeployResult] = useState<{ url: string } | null>(null);
+  const [deployLoading, setDeployLoading] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -225,6 +235,21 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
       setExportError(e?.message || 'Failed to convert design.');
     } finally {
       setExportLoading(false);
+    }
+  };
+
+  const runDeploy = async () => {
+    if (!sourceHtml) return;
+    setDeployLoading(true);
+    setDeployError(null);
+    setDeployResult(null);
+    try {
+      const result = await deployToVercel(sourceHtml, 'gia-co-design-export', byok.vercelToken, deployTarget);
+      setDeployResult({ url: result.url });
+    } catch (e: any) {
+      setDeployError(e?.message || 'Deployment failed.');
+    } finally {
+      setDeployLoading(false);
     }
   };
 
@@ -502,6 +527,64 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
                           <pre className={`text-[11px] font-mono overflow-x-auto max-h-48 p-2 rounded-lg ${isLight ? 'bg-[#f4f0e8]' : 'bg-[#1b1a17]'}`}>{f.content}</pre>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {tab === 'deploy' && (
+            <>
+              <p className="text-xs opacity-70">Deploy the current design live to Vercel using your own access token.</p>
+              {!sourceHtml ? (
+                <div className={`${cardCls} text-xs opacity-70`}>{noSourceMsg}</div>
+              ) : !byok.vercelToken.trim() ? (
+                <div className={`${cardCls} text-xs flex items-start gap-2`}>
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+                  <span>No Vercel token configured. Add one in Settings (gear icon) - create it at <span className="font-mono-claude">vercel.com/account/tokens</span>.</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex gap-2">
+                    {(['preview', 'production'] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setDeployTarget(t)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors capitalize ${
+                          deployTarget === t
+                            ? 'bg-[#d97757] text-white border-[#c66545]'
+                            : isLight
+                            ? 'bg-white hover:bg-[#f4f0e8] text-[#575249] border-[#e2ddd3]'
+                            : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={runDeploy} disabled={deployLoading} className={primaryBtnCls}>
+                    {deployLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Rocket className="w-3.5 h-3.5" />}
+                    Deploy to Vercel
+                  </button>
+                  {deployError && (
+                    <div className={`${cardCls} text-xs text-red-500 flex items-start gap-2`}>
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                      {deployError}
+                    </div>
+                  )}
+                  {deployResult && (
+                    <div className={`${cardCls} flex items-center justify-between`}>
+                      <span className="text-xs font-mono truncate mr-2">{deployResult.url}</span>
+                      <a
+                        href={deployResult.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors ${isLight ? 'bg-[#d97757]/10 hover:bg-[#d97757]/20 text-[#a94a2e] border border-[#d97757]/30' : 'bg-[#d97757]/20 hover:bg-[#d97757]/30 text-[#e28566] border border-[#d97757]/40'}`}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open
+                      </a>
                     </div>
                   )}
                 </>

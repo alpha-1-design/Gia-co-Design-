@@ -411,6 +411,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
+          {/* Deploy destinations */}
+          <div className="space-y-1.5">
+            <label className={`block text-xs font-semibold uppercase tracking-wider ${
+              isLight ? 'text-[#736e65]' : 'text-[#9e978a]'
+            }`}>
+              Deploy Destinations
+            </label>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium">Vercel Access Token</label>
+              <input
+                type="password"
+                value={config.vercelToken}
+                onChange={(e) => setConfig({ ...config, vercelToken: e.target.value })}
+                placeholder="vca_..."
+                className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-mono-claude focus:outline-none focus:border-[#d97757] ${
+                  isLight ? 'bg-white border-[#ded8cc] text-[#22201d]' : 'bg-[#181715] border-[#38342e] text-[#f4f0ea]'
+                }`}
+              />
+              <p className={`text-[11px] ${isLight ? 'text-[#9e978a]' : 'text-[#736e65]'}`}>
+                Lets you deploy a generated design live from the Tools panel. Create a token at{' '}
+                <span className="font-mono-claude">vercel.com/account/tokens</span> - stored locally, never sent anywhere but Vercel's API.
+              </p>
+            </div>
+          </div>
+
           {/* Model Selector */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">

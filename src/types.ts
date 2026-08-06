@@ -30,6 +30,7 @@ export interface BYOKConfig {
   customBaseUrl: string;
   selectedModel: string;
   systemPrompt: string;
+  vercelToken: string;
 }
 
 export interface PinComment {
