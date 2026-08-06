@@ -1,5 +1,9 @@
 # Gia-co-Design 🎨✨
 
+<p align="center">
+  <img src="./assets/icon/icon-1024.png" alt="Gia-co-Design app icon" width="128" height="128" />
+</p>
+
 **Gia-co-Design** is a modern, standalone, Bring-Your-Own-Key (BYOK) AI design studio and UI Kit generator workspace. It enables frontend designers and engineers to prompt, decompose, preview, critique, and refine agentic UI components across multiple leading AI provider networks — all running 100% client-side in the browser.
 
 ---
