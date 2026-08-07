@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Link2, Check, Loader2, Copy } from 'lucide-react';
+import { X, Link2, Check, Loader2, Copy, Share2 } from 'lucide-react';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -45,6 +45,18 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, onBuild
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
+  };
+
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  const handleNativeShare = async () => {
+    try {
+      await navigator.share({ title: 'Gia-co-Design', text: 'Check out this design', url: link });
+    } catch {
+      // User cancelled the share sheet, or it's unsupported despite the
+      // feature check - either way, silently fall through. Copy is still
+      // right there as the reliable fallback.
+    }
   };
 
   return (
@@ -100,6 +112,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, onBuild
               <label className={`block text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-[#736e65]' : 'text-[#9e978a]'}`}>
                 Share Link
               </label>
+              {canNativeShare && (
+                <button
+                  onClick={handleNativeShare}
+                  className="w-full px-3 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 bg-[#d97757] hover:bg-[#c66545] text-white transition-colors"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Share via...
+                </button>
+              )}
               <div className={`flex items-center gap-2 p-2 rounded-xl border ${
                 isLight ? 'bg-white border-[#e2ddd3]' : 'bg-[#2a2723] border-[#3d3831]'
               }`}>
@@ -114,13 +135,20 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, onBuild
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
                     copied
                       ? 'bg-emerald-500 text-white'
-                      : 'bg-[#d97757] hover:bg-[#c66545] text-white'
+                      : isLight
+                      ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border border-[#e2ddd3]'
+                      : 'bg-[#332f2a] hover:bg-[#3d3831] text-[#f4f0ea] border border-[#3d3831]'
                   }`}
                 >
                   {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
+              {canNativeShare && (
+                <p className={`text-[11px] ${isLight ? 'text-[#9e978a]' : 'text-[#736e65]'}`}>
+                  "Share via..." opens your device's share sheet - you won't see the raw link there, just app icons to send it through.
+                </p>
+              )}
             </div>
           )}
 
