@@ -252,11 +252,11 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
   const getDeviceStyle = () => {
     switch (previewDevice) {
       case 'mobile':
-        return `w-[390px] h-[812px] max-h-[85vh] rounded-[40px] border-[10px] ${
+        return `w-[min(390px,100%)] h-[min(812px,80vh)] rounded-[40px] border-[10px] ${
           isLight ? 'border-[#38342e]' : 'border-[#2a2723]'
         } shadow-2xl relative overflow-hidden bg-white`;
       case 'tablet':
-        return `w-[768px] h-[900px] max-h-[85vh] rounded-2xl border-8 ${
+        return `w-[min(768px,100%)] h-[min(900px,80vh)] rounded-2xl border-8 ${
           isLight ? 'border-[#38342e]' : 'border-[#2a2723]'
         } shadow-2xl relative overflow-hidden bg-white`;
       case 'desktop':
@@ -279,10 +279,10 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
       isLight ? 'bg-[#faf8f5]' : 'bg-[#181715]'
     }`}>
       {/* Canvas Controls Header */}
-      <div className={`h-11 border-b px-4 flex items-center justify-between z-20 shrink-0 ${
+      <div className={`h-11 border-b px-4 flex items-center justify-between gap-2 z-20 shrink-0 ${
         isLight ? 'bg-[#f4f0e8] border-[#e6e1d7] text-[#22201d]' : 'bg-[#22201d] border-[#38342e] text-[#f4f0ea]'
       }`}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto min-w-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {/* Pin Mode Button */}
           {/* Comment Pin Mode Button */}
           {!readOnly && (
@@ -302,9 +302,10 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                   ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
                   : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
               }`}
+              title="Drop a pinned comment on the design"
             >
-              <Pin className="w-3.5 h-3.5" />
-              <span>{isPinMode ? 'Click Canvas to Drop Pin' : 'Comment Pin Mode'}</span>
+              <Pin className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">{isPinMode ? 'Click Canvas to Drop Pin' : 'Comment Pin Mode'}</span>
             </button>
           )}
 
@@ -321,8 +322,8 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
               }`}
               title="Click elements to drag them or tune spacing/color, then sync to code"
             >
-              <MousePointerClick className="w-3.5 h-3.5" />
-              <span>{isEditMode ? 'Click Canvas to Select' : 'Direct Edit'}</span>
+              <MousePointerClick className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">{isEditMode ? 'Click Canvas to Select' : 'Direct Edit'}</span>
             </button>
           )}
 
@@ -337,9 +338,10 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                   ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
                   : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
               }`}
+              title="Quick style tweaks"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Tweak Palette</span>
+              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden sm:inline">Tweak Palette</span>
             </button>
           )}
 
@@ -356,11 +358,11 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
               title="Run an AI accessibility & design quality audit"
             >
               {isCritiquing ? (
-                <Sparkles className="w-3.5 h-3.5 animate-pulse text-[#d97757]" />
+                <Sparkles className="w-3.5 h-3.5 shrink-0 animate-pulse text-[#d97757]" />
               ) : (
-                <Sparkles className="w-3.5 h-3.5 text-[#d97757]" />
+                <Sparkles className="w-3.5 h-3.5 shrink-0 text-[#d97757]" />
               )}
-              <span>{isCritiquing ? 'Auditing...' : 'Critique'}</span>
+              <span className="hidden sm:inline">{isCritiquing ? 'Auditing...' : 'Critique'}</span>
             </button>
           )}
         </div>

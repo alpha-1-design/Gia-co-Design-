@@ -54,7 +54,11 @@ export function buildSharePayload(session: DesignSession): string {
 export async function encodeShareLink(session: DesignSession): Promise<string> {
   const payload = buildSharePayload(session);
   const compressed = await gzip(new TextEncoder().encode(payload));
-  return `${HASH_PREFIX}${bytesToBase64(compressed)}`;
+  const hash = `${HASH_PREFIX}${bytesToBase64(compressed)}`;
+  // A bare hash fragment isn't a usable link on its own - nothing to copy
+  // and paste without the scheme/host/path in front of it. Build the real,
+  // absolute, clickable URL the person actually asked to share.
+  return `${window.location.origin}${window.location.pathname}${hash}`;
 }
 
 export function parseShareHash(hash: string): { ok: true; payload: string } | { ok: false; error: string } {
