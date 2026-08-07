@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   FolderKanban, 
   Settings, 
@@ -14,7 +14,8 @@ import {
   Palette,
   Link2,
   History,
-  Wand2
+  Wand2,
+  MoreVertical
 } from 'lucide-react';
 import { PreviewDevice, BYOKConfig, AIProvider } from '../types';
 import { fetchLiveModels } from '../lib/ai';
@@ -71,6 +72,19 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showMore) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMore(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMore]);
 
   const providerIdentity = [
     byok.provider,
@@ -222,8 +236,8 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
-      {/* Provider + Model Quick Switcher */}
-      <div className="hidden sm:flex items-center gap-1.5" title="AI provider & model">
+      {/* Provider + Model Quick Switcher (desktop convenience; also always reachable via More menu) */}
+      <div className="hidden lg:flex items-center gap-1.5" title="AI provider & model">
         <select
           value={byok.provider}
           onChange={(e) => onProviderChange(e.target.value as AIProvider)}
@@ -272,7 +286,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={onOpenVersionHistory}
-          className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             isLight
               ? 'bg-[#f0e9dd] hover:bg-[#e7dfd1] text-[#22201d] border-[#ded8cc]'
               : 'bg-[#2e2a25] hover:bg-[#38332d] text-[#f4f0ea] border-[#3d3831]'
@@ -285,7 +299,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={onOpenDesignTools}
-          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             isLight
               ? 'bg-[#f0e9dd] hover:bg-[#e7dfd1] text-[#22201d] border-[#ded8cc]'
               : 'bg-[#2e2a25] hover:bg-[#38332d] text-[#f4f0ea] border-[#3d3831]'
@@ -298,7 +312,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={onOpenDecompose}
-          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             isLight
               ? 'bg-[#f0e9dd] hover:bg-[#e7dfd1] text-[#22201d] border-[#ded8cc]'
               : 'bg-[#2e2a25] hover:bg-[#38332d] text-[#f4f0ea] border-[#3d3831]'
@@ -311,7 +325,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={onOpenDesignSystems}
-          className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             activeDesignSystemName
               ? isLight
                 ? 'bg-[#d97757]/15 hover:bg-[#d97757]/25 text-[#a94a2e] border-[#d97757]/40'
@@ -348,7 +362,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={onOpenShare}
-          className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+          className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
             isLight
               ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
               : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
@@ -389,6 +403,88 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="w-2 h-2 rounded-full bg-[#d97757] absolute top-1 right-1" />
           )}
         </button>
+
+        {/* More menu - the guaranteed access point for every secondary action
+            on any screen size, phones included. Nothing in here should ever
+            be reachable ONLY through a breakpoint-hidden inline button. */}
+        <div className="relative" ref={moreMenuRef}>
+          <button
+            onClick={() => setShowMore((v) => !v)}
+            className={`p-1.5 rounded-lg border transition-colors ${
+              showMore
+                ? 'bg-[#d97757] text-white border-[#c66545]'
+                : isLight
+                ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
+                : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
+            }`}
+            title="More actions"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+          {showMore && (
+            <div
+              className={`absolute right-0 top-full mt-2 w-64 rounded-xl border shadow-xl overflow-hidden z-40 ${
+                isLight ? 'bg-[#faf8f5] border-[#e6e1d7]' : 'bg-[#22201d] border-[#38342e]'
+              }`}
+            >
+              <div className={`px-3 py-2 border-b ${isLight ? 'border-[#e6e1d7]' : 'border-[#38342e]'}`}>
+                <label className={`block text-[10px] font-semibold uppercase tracking-wider mb-1.5 ${isLight ? 'text-[#736e65]' : 'text-[#9e978a]'}`}>
+                  Provider & Model
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={byok.provider}
+                    onChange={(e) => onProviderChange(e.target.value as AIProvider)}
+                    className={`${switcherSelectCls} flex-1`}
+                  >
+                    {PROVIDER_LIST.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                  {modelsLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#d97757] shrink-0" />}
+                </div>
+                <select
+                  value={byok.selectedModel}
+                  onChange={(e) => onModelChange(e.target.value)}
+                  disabled={modelsLoading}
+                  className={`${switcherSelectCls} w-full mt-1.5 disabled:opacity-60`}
+                >
+                  {modelsLoading ? (
+                    <option value={byok.selectedModel}>Loading models...</option>
+                  ) : (
+                    modelOptions.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+              {[
+                { icon: History, label: 'Version History', onClick: onOpenVersionHistory },
+                { icon: Wand2, label: 'Design Tools', onClick: onOpenDesignTools },
+                { icon: Layers, label: 'UI Kit (Decompose)', onClick: onOpenDecompose },
+                {
+                  icon: Palette,
+                  label: activeDesignSystemName ? activeDesignSystemName : 'Design System',
+                  onClick: onOpenDesignSystems,
+                  active: Boolean(activeDesignSystemName),
+                },
+                { icon: Link2, label: 'Share', onClick: onOpenShare },
+              ].map(({ icon: Icon, label, onClick, active }) => (
+                <button
+                  key={label}
+                  onClick={() => { onClick(); setShowMore(false); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-medium text-left transition-colors ${
+                    isLight ? 'hover:bg-[#f0e9dd] text-[#22201d]' : 'hover:bg-[#2e2a25] text-[#f4f0ea]'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5 text-[#d97757] shrink-0" />
+                  <span className="truncate flex-1">{label}</span>
+                  {active && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
