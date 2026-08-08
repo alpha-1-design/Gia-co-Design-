@@ -3,6 +3,8 @@ import { Header } from './components/Header';
 import { SettingsModal } from './components/SettingsModal';
 import { PromptSidebar } from './components/PromptSidebar';
 import { PreviewCanvas } from './components/PreviewCanvas';
+import { ScreensRail } from './components/ScreensRail';
+import { AddScreenModal } from './components/AddScreenModal';
 import { CodeInspector } from './components/CodeInspector';
 import { DecomposeModal } from './components/DecomposeModal';
 import { ExportModal } from './components/ExportModal';
@@ -17,6 +19,7 @@ import { Capacitor } from '@capacitor/core';
 import { 
   BYOKConfig, 
   DesignSession, 
+  DesignScreen,
   DesignTurn, 
   PreviewDevice, 
   PinComment, 
@@ -70,6 +73,7 @@ export default function App() {
   const [isCritiquing, setIsCritiquing] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showDesignTools, setShowDesignTools] = useState(false);
+  const [showAddScreenPrompt, setShowAddScreenPrompt] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [sharedSession, setSharedSession] = useState<DesignSession | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -79,10 +83,30 @@ export default function App() {
   const [variantCount, setVariantCount] = useState(1);
   const [mobileTab, setMobileTab] = useState<'preview' | 'prompt' | 'code'>('preview');
 
-  // Find active session
+  // Find active session, and within it, the active screen (a session can
+  // now hold multiple named screens - a mobile app concept might have a
+  // Login, Home, and Settings screen all living in the same project).
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
-  const activeTurn = activeSession.turns[activeSession.activeTurnIndex] || activeSession.turns[0];
+  const activeScreen = activeSession.screens.find((sc) => sc.id === activeSession.activeScreenId) || activeSession.screens[0];
+  const activeTurn = activeScreen.turns[activeScreen.activeTurnIndex] || activeScreen.turns[0];
   const activeDesignSystem = designSystems.find((ds) => ds.id === activeDesignSystemId) || null;
+
+  // Central write path for anything that mutates the active screen's turns -
+  // every screen behaves exactly like the old single-design session did, so
+  // history/critique/pins/branching all keep working per-screen unchanged.
+  const updateActiveScreen = (updater: (screen: DesignScreen) => DesignScreen) => {
+    const updatedSessions = sessions.map((s) => {
+      if (s.id !== activeSession.id) return s;
+      return {
+        ...s,
+        screens: s.screens.map((sc) => (sc.id === activeScreen.id ? updater(sc) : sc)),
+        updatedAt: Date.now(),
+      };
+    });
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+    return updatedSessions;
+  };
 
   // Auto-open settings if no API keys configured
   useEffect(() => {
@@ -179,12 +203,12 @@ export default function App() {
   };
 
   const handleCreateSession = () => {
-    const newSession: DesignSession = {
-      id: `session-${Date.now()}`,
-      title: `Gia-co-Design #${sessions.length + 1}`,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+    const firstScreen: DesignScreen = {
+      id: `screen-${Date.now()}`,
+      name: 'Screen 1',
+      kind: 'other',
       activeTurnIndex: 0,
+      createdAt: Date.now(),
       turns: [
         {
           id: `turn-${Date.now()}`,
@@ -196,6 +220,14 @@ export default function App() {
           tokensCost: 350,
         },
       ],
+    };
+    const newSession: DesignSession = {
+      id: `session-${Date.now()}`,
+      title: `Gia-co-Design #${sessions.length + 1}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      screens: [firstScreen],
+      activeScreenId: firstScreen.id,
     };
     const updated = [newSession, ...sessions];
     setSessions(updated);
@@ -254,22 +286,10 @@ export default function App() {
         tokensCost: tokensEstimate,
       };
 
-      const updatedTurns = [...activeSession.turns, newTurn];
+      const updatedTurns = [...activeScreen.turns, newTurn];
       const newActiveIdx = updatedTurns.length - 1;
 
-      const updatedSessions = sessions.map((s) =>
-        s.id === activeSession.id
-          ? {
-              ...s,
-              turns: updatedTurns,
-              activeTurnIndex: newActiveIdx,
-              updatedAt: Date.now(),
-            }
-          : s
-      );
-
-      setSessions(updatedSessions);
-      saveSessions(updatedSessions);
+      updateActiveScreen((sc) => ({ ...sc, turns: updatedTurns, activeTurnIndex: newActiveIdx }));
 
       if (window.innerWidth < 1024) {
         setMobileTab('preview');
@@ -309,7 +329,7 @@ export default function App() {
   };
 
   const handleBuildShareLink = async (): Promise<string> => {
-    return encodeShareLink(activeSession);
+    return encodeShareLink(activeScreen, activeSession.title);
   };
 
   const handleSaveSharedToDesigns = () => {
@@ -342,69 +362,110 @@ export default function App() {
     const currentPins = activeTurn.pins || [];
     const updatedPins = [...currentPins, newPin];
 
-    const updatedTurns = activeSession.turns.map((t, idx) =>
-      idx === activeSession.activeTurnIndex ? { ...t, pins: updatedPins } : t
-    );
-
-    const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
-    );
-
-    setSessions(updatedSessions);
-    saveSessions(updatedSessions);
+    updateActiveScreen((sc) => ({
+      ...sc,
+      turns: sc.turns.map((t, idx) => (idx === sc.activeTurnIndex ? { ...t, pins: updatedPins } : t)),
+    }));
   };
 
   const handleResolvePin = (pinId: string) => {
     const currentPins = activeTurn.pins || [];
     const updatedPins = currentPins.filter((p) => p.id !== pinId);
 
-    const updatedTurns = activeSession.turns.map((t, idx) =>
-      idx === activeSession.activeTurnIndex ? { ...t, pins: updatedPins } : t
-    );
-
-    const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
-    );
-
-    setSessions(updatedSessions);
-    saveSessions(updatedSessions);
+    updateActiveScreen((sc) => ({
+      ...sc,
+      turns: sc.turns.map((t, idx) => (idx === sc.activeTurnIndex ? { ...t, pins: updatedPins } : t)),
+    }));
   };
 
   const handleUpdateCode = (newCode: string) => {
-    const updatedTurns = activeSession.turns.map((t, idx) => {
-      if (idx !== activeSession.activeTurnIndex) return t;
-      const directions = t.directions
-        ? t.directions.map((d, di) => (di === (t.activeDirection ?? 0) ? newCode : d))
-        : undefined;
-      return { ...t, codeHtml: newCode, directions };
-    });
-
-    const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
-    );
-
-    setSessions(updatedSessions);
-    saveSessions(updatedSessions);
+    updateActiveScreen((sc) => ({
+      ...sc,
+      turns: sc.turns.map((t, idx) => {
+        if (idx !== sc.activeTurnIndex) return t;
+        const directions = t.directions
+          ? t.directions.map((d, di) => (di === (t.activeDirection ?? 0) ? newCode : d))
+          : undefined;
+        return { ...t, codeHtml: newCode, directions };
+      }),
+    }));
   };
 
   const handleSelectTurn = (idx: number) => {
+    updateActiveScreen((sc) => ({ ...sc, activeTurnIndex: idx }));
+  };
+
+  const handleSelectDirection = (directionIdx: number) => {
+    const turn = activeScreen.turns[activeScreen.activeTurnIndex];
+    if (!turn?.directions || !turn.directions[directionIdx]) return;
+    updateActiveScreen((sc) => ({
+      ...sc,
+      turns: sc.turns.map((t, idx) =>
+        idx === sc.activeTurnIndex
+          ? { ...t, activeDirection: directionIdx, codeHtml: turn.directions![directionIdx] }
+          : t
+      ),
+    }));
+  };
+
+  // --- Multi-screen project management ---
+  const handleAddScreen = (name?: string, kind: DesignScreen['kind'] = 'other', initialHtml?: string) => {
+    const newScreen: DesignScreen = {
+      id: `screen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: name?.trim() || `Screen ${activeSession.screens.length + 1}`,
+      kind,
+      activeTurnIndex: 0,
+      createdAt: Date.now(),
+      turns: [
+        {
+          id: `turn-${Date.now()}`,
+          role: 'assistant',
+          prompt: name ? `Initial: ${name}` : 'New blank screen',
+          codeHtml: initialHtml || INITIAL_SAMPLE_HTML,
+          timestamp: Date.now(),
+          modelUsed: byok.selectedModel || 'gemini-2.5-flash',
+        },
+      ],
+    };
     const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id ? { ...s, activeTurnIndex: idx } : s
+      s.id === activeSession.id
+        ? { ...s, screens: [...s.screens, newScreen], activeScreenId: newScreen.id, updatedAt: Date.now() }
+        : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+    return newScreen;
+  };
+
+  const handleSelectScreen = (screenId: string) => {
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSession.id ? { ...s, activeScreenId: screenId } : s
     );
     setSessions(updatedSessions);
     saveSessions(updatedSessions);
   };
 
-  const handleSelectDirection = (directionIdx: number) => {
-    const turn = activeSession.turns[activeSession.activeTurnIndex];
-    if (!turn?.directions || !turn.directions[directionIdx]) return;
-    const updatedTurns = activeSession.turns.map((t, idx) =>
-      idx === activeSession.activeTurnIndex
-        ? { ...t, activeDirection: directionIdx, codeHtml: turn.directions![directionIdx] }
-        : t
-    );
+  const handleRenameScreen = (screenId: string, name: string) => {
     const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id ? { ...s, turns: updatedTurns, updatedAt: Date.now() } : s
+      s.id === activeSession.id
+        ? { ...s, screens: s.screens.map((sc) => (sc.id === screenId ? { ...sc, name } : sc)) }
+        : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+  };
+
+  const handleDeleteScreen = (screenId: string) => {
+    if (activeSession.screens.length <= 1) return;
+    const remaining = activeSession.screens.filter((sc) => sc.id !== screenId);
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSession.id
+        ? {
+            ...s,
+            screens: remaining,
+            activeScreenId: s.activeScreenId === screenId ? remaining[0].id : s.activeScreenId,
+          }
+        : s
     );
     setSessions(updatedSessions);
     saveSessions(updatedSessions);
@@ -425,18 +486,26 @@ export default function App() {
     setShowVersionHistory(false);
   };
 
-  // Branch: fork a new session containing only the turns up to and including
-  // turnIndex, so the person can explore a different direction from that
-  // point without losing the original timeline.
+  // Branch: fork a *new single-screen session* containing only the turns up
+  // to and including turnIndex from the active screen, so the person can
+  // explore a different direction from that point without losing the
+  // original project. (Branches the one screen being viewed, not the whole
+  // multi-screen project - forking an entire project is a bigger feature.)
   const handleCreateBranch = (turnIndex: number) => {
-    const sourceTurns = activeSession.turns.slice(0, turnIndex + 1);
+    const sourceTurns = activeScreen.turns.slice(0, turnIndex + 1);
     if (sourceTurns.length === 0) return;
+    const branchedScreen: DesignScreen = {
+      ...activeScreen,
+      id: `screen-${Date.now()}`,
+      turns: sourceTurns.map((t) => ({ ...t })),
+      activeTurnIndex: sourceTurns.length - 1,
+    };
     const branchedSession: DesignSession = {
       ...activeSession,
       id: `session-${Date.now()}`,
       title: `${activeSession.title} (branch)`,
-      turns: sourceTurns.map((t) => ({ ...t })),
-      activeTurnIndex: sourceTurns.length - 1,
+      screens: [branchedScreen],
+      activeScreenId: branchedScreen.id,
       parentSessionId: activeSession.id,
       parentTurnIndex: turnIndex,
       createdAt: Date.now(),
@@ -454,45 +523,41 @@ export default function App() {
   // bookmarks them, at which point we materialize one so it's a durable,
   // named entry in that turn's history rather than a synthetic UI-only row.
   const handleBookmarkVersion = (versionId: string) => {
-    const updatedTurns = activeSession.turns.map((t, idx) => {
-      const existingSnaps = t.versionSnapshots || [];
-      const existingIdx = existingSnaps.findIndex((sn) => sn.id === versionId);
-      if (existingIdx >= 0) {
-        const updatedSnaps = existingSnaps.map((sn, i) =>
-          i === existingIdx ? { ...sn, isBookmarked: !sn.isBookmarked } : sn
-        );
-        return { ...t, versionSnapshots: updatedSnaps };
-      }
-      if (t.id === versionId) {
-        const newSnapshot: VersionSnapshot = {
-          id: `snap-${Date.now()}`,
-          turnIndex: idx,
-          codeHtml: t.codeHtml,
-          timestamp: t.timestamp,
-          label: `Turn ${idx + 1}`,
-          isBookmarked: true,
-        };
-        return { ...t, versionSnapshots: [...existingSnaps, newSnapshot] };
-      }
-      return t;
-    });
-    const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
-    );
-    setSessions(updatedSessions);
-    saveSessions(updatedSessions);
+    updateActiveScreen((sc) => ({
+      ...sc,
+      turns: sc.turns.map((t, idx) => {
+        const existingSnaps = t.versionSnapshots || [];
+        const existingIdx = existingSnaps.findIndex((sn) => sn.id === versionId);
+        if (existingIdx >= 0) {
+          const updatedSnaps = existingSnaps.map((sn, i) =>
+            i === existingIdx ? { ...sn, isBookmarked: !sn.isBookmarked } : sn
+          );
+          return { ...t, versionSnapshots: updatedSnaps };
+        }
+        if (t.id === versionId) {
+          const newSnapshot: VersionSnapshot = {
+            id: `snap-${Date.now()}`,
+            turnIndex: idx,
+            codeHtml: t.codeHtml,
+            timestamp: t.timestamp,
+            label: `Turn ${idx + 1}`,
+            isBookmarked: true,
+          };
+          return { ...t, versionSnapshots: [...existingSnaps, newSnapshot] };
+        }
+        return t;
+      }),
+    }));
   };
 
   const handleDeleteVersion = (versionId: string) => {
-    const updatedTurns = activeSession.turns.map((t) => ({
-      ...t,
-      versionSnapshots: (t.versionSnapshots || []).filter((sn) => sn.id !== versionId),
+    updateActiveScreen((sc) => ({
+      ...sc,
+      turns: sc.turns.map((t) => ({
+        ...t,
+        versionSnapshots: (t.versionSnapshots || []).filter((sn) => sn.id !== versionId),
+      })),
     }));
-    const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id ? { ...s, turns: updatedTurns } : s
-    );
-    setSessions(updatedSessions);
-    saveSessions(updatedSessions);
   };
 
   // Design Tools "Use as New Design": push a generated standalone component
@@ -508,22 +573,16 @@ export default function App() {
       modelUsed: byok.selectedModel || 'gemini-2.5-flash',
       tokensCost: 0,
     };
-    const updatedTurns = [...activeSession.turns, newTurn];
+    const updatedTurns = [...activeScreen.turns, newTurn];
     const newActiveIdx = updatedTurns.length - 1;
-    const updatedSessions = sessions.map((s) =>
-      s.id === activeSession.id
-        ? { ...s, turns: updatedTurns, activeTurnIndex: newActiveIdx, updatedAt: Date.now() }
-        : s
-    );
-    setSessions(updatedSessions);
-    saveSessions(updatedSessions);
+    updateActiveScreen((sc) => ({ ...sc, turns: updatedTurns, activeTurnIndex: newActiveIdx }));
     setShowDesignTools(false);
     if (window.innerWidth < 1024) setMobileTab('preview');
   };
 
-  const totalTokens = activeSession.turns.reduce((acc, t) => acc + (t.tokensCost || 0), 0);
+  const totalTokens = activeScreen.turns.reduce((acc, t) => acc + (t.tokensCost || 0), 0);
   const sharedTurn = sharedSession
-    ? sharedSession.turns[sharedSession.activeTurnIndex] || sharedSession.turns[0]
+    ? (sharedSession.screens?.[0]?.turns[sharedSession.screens[0].activeTurnIndex] || sharedSession.screens?.[0]?.turns[0])
     : undefined;
 
   const isLight = theme === 'light';
@@ -608,12 +667,22 @@ export default function App() {
           </div>
         </div>
       ) : (
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        <ScreensRail
+          screens={activeSession.screens}
+          activeScreenId={activeSession.activeScreenId}
+          onSelectScreen={handleSelectScreen}
+          onAddScreen={() => setShowAddScreenPrompt(true)}
+          onRenameScreen={handleRenameScreen}
+          onDeleteScreen={handleDeleteScreen}
+          theme={theme}
+        />
+        <div className="flex-1 flex overflow-hidden relative">
         {/* Desktop / Large Screen Split View */}
         <div className="hidden lg:flex w-full h-full">
           <PromptSidebar
-            turns={activeSession.turns}
-            activeTurnIndex={activeSession.activeTurnIndex}
+            turns={activeScreen.turns}
+            activeTurnIndex={activeScreen.activeTurnIndex}
             onSelectTurn={handleSelectTurn}
             onGenerate={handleGenerate}
             isGenerating={isGenerating}
@@ -672,8 +741,8 @@ export default function App() {
             )}
             {mobileTab === 'prompt' && (
               <PromptSidebar
-                turns={activeSession.turns}
-                activeTurnIndex={activeSession.activeTurnIndex}
+                turns={activeScreen.turns}
+                activeTurnIndex={activeScreen.activeTurnIndex}
                 onSelectTurn={handleSelectTurn}
                 onGenerate={handleGenerate}
                 isGenerating={isGenerating}
@@ -728,6 +797,7 @@ export default function App() {
               <span>Code Inspector</span>
             </button>
           </nav>
+        </div>
         </div>
       </div>
       )}
@@ -789,8 +859,9 @@ export default function App() {
       />
       {showVersionHistory && (
         <VersionHistoryModal
-          session={activeSession}
-          currentTurnIndex={activeSession.activeTurnIndex}
+          session={activeScreen}
+          sessionTitle={`${activeSession.title} · ${activeScreen.name}`}
+          currentTurnIndex={activeScreen.activeTurnIndex}
           onClose={() => setShowVersionHistory(false)}
           onSelectVersion={handleSelectVersion}
           onCreateBranch={handleCreateBranch}
@@ -807,6 +878,21 @@ export default function App() {
         designSystemHtml={activeDesignSystem?.sourceHtml}
         theme={theme}
         onInsertComponent={handleInsertComponent}
+      />
+      <AddScreenModal
+        isOpen={showAddScreenPrompt}
+        onClose={() => setShowAddScreenPrompt(false)}
+        onCreateBlank={(name, kind) => {
+          handleAddScreen(name, kind);
+          setShowAddScreenPrompt(false);
+        }}
+        onCreateGenerated={(name, kind, html) => {
+          handleAddScreen(name, kind, html);
+          setShowAddScreenPrompt(false);
+        }}
+        byok={byok}
+        previewDevice={previewDevice}
+        designSystemHtml={activeDesignSystem?.sourceHtml}
       />
       <ShareModal
         isOpen={showShareModal}

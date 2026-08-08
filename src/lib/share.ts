@@ -1,4 +1,4 @@
-import { DesignSession } from '../types';
+import { DesignSession, DesignScreen } from '../types';
 
 const HASH_PREFIX = '#s=';
 
@@ -29,14 +29,15 @@ async function gunzip(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-export function buildSharePayload(session: DesignSession): string {
+export function buildSharePayload(screen: DesignScreen, sessionTitle: string): string {
   return JSON.stringify({
-    v: 1,
-    title: session.title,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-    activeTurnIndex: session.activeTurnIndex,
-    turns: session.turns.map((t) => ({
+    v: 2,
+    title: sessionTitle,
+    screenName: screen.name,
+    createdAt: screen.createdAt,
+    updatedAt: Date.now(),
+    activeTurnIndex: screen.activeTurnIndex,
+    turns: screen.turns.map((t) => ({
       id: t.id,
       role: t.role,
       prompt: t.prompt,
@@ -51,8 +52,8 @@ export function buildSharePayload(session: DesignSession): string {
   });
 }
 
-export async function encodeShareLink(session: DesignSession): Promise<string> {
-  const payload = buildSharePayload(session);
+export async function encodeShareLink(screen: DesignScreen, sessionTitle: string): Promise<string> {
+  const payload = buildSharePayload(screen, sessionTitle);
   const compressed = await gzip(new TextEncoder().encode(payload));
   const hash = `${HASH_PREFIX}${bytesToBase64(compressed)}`;
   // A bare hash fragment isn't a usable link on its own - nothing to copy
@@ -91,13 +92,21 @@ export async function decodeShareHash(hash: string): Promise<DesignSession | nul
       tokensCost: typeof t.tokensCost === 'number' ? t.tokensCost : undefined,
       pins: Array.isArray(t.pins) ? t.pins : undefined,
     }));
+    const screen: DesignScreen = {
+      id: `shared-screen-${Date.now()}`,
+      name: String(json.screenName || 'Shared Screen'),
+      kind: 'other',
+      turns,
+      activeTurnIndex: Math.min(Math.max(Number(json.activeTurnIndex) || 0, 0), turns.length - 1),
+      createdAt: typeof json.createdAt === 'number' ? json.createdAt : Date.now(),
+    };
     return {
       id: `shared-${Date.now()}`,
       title: String(json.title || 'Shared Design'),
       createdAt: typeof json.createdAt === 'number' ? json.createdAt : Date.now(),
       updatedAt: typeof json.updatedAt === 'number' ? json.updatedAt : Date.now(),
-      activeTurnIndex: Math.min(Math.max(Number(json.activeTurnIndex) || 0, 0), turns.length - 1),
-      turns,
+      screens: [screen],
+      activeScreenId: screen.id,
     };
   } catch (e) {
     console.error('Failed to decode shared design:', e);

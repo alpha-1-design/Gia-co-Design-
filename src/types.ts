@@ -126,13 +126,26 @@ export interface DesignTurn {
   designTokens?: DesignToken[];
 }
 
+export interface DesignScreen {
+  id: string;
+  name: string;
+  kind: 'website' | 'mobile' | 'dashboard' | 'landing' | 'component' | 'other';
+  turns: DesignTurn[];
+  activeTurnIndex: number;
+  createdAt: number;
+}
+
 export interface DesignSession {
   id: string;
   title: string;
   createdAt: number;
   updatedAt: number;
-  turns: DesignTurn[];
-  activeTurnIndex: number;
+  screens: DesignScreen[];
+  activeScreenId: string;
+  /** @deprecated pre-multi-screen data, kept only so old localStorage sessions can be migrated on load */
+  turns?: DesignTurn[];
+  /** @deprecated see turns */
+  activeTurnIndex?: number;
   uiKit?: UIKitDecomposition;
   branches?: string[]; // IDs of branched sessions
   parentSessionId?: string;

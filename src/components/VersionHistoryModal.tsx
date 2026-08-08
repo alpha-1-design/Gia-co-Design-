@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { GitBranch, Clock, Bookmark, Trash2, ExternalLink, ChevronRight, Plus, X } from 'lucide-react';
-import { VersionSnapshot, DesignSession } from '../types';
+import { VersionSnapshot, DesignScreen } from '../types';
 
 interface VersionHistoryModalProps {
-  session: DesignSession;
+  session: DesignScreen;
+  sessionTitle: string;
   currentTurnIndex: number;
   onClose: () => void;
   onSelectVersion: (turnIndex: number, snapshotId?: string) => void;
@@ -15,6 +16,7 @@ interface VersionHistoryModalProps {
 
 export const VersionHistoryModal: React.FC<VersionHistoryModalProps> = ({
   session,
+  sessionTitle,
   currentTurnIndex,
   onClose,
   onSelectVersion,
@@ -78,7 +80,7 @@ export const VersionHistoryModal: React.FC<VersionHistoryModalProps> = ({
           <div className="flex items-center gap-3">
             <Clock className="w-5 h-5 text-[#d97757]" />
             <h2 className={`text-lg font-bold ${isLight ? 'text-[#22201d]' : 'text-[#f4f0ea]'}`}>
-              Version History — {session.title}
+              Version History — {sessionTitle}
             </h2>
           </div>
           <button

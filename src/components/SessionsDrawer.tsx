@@ -124,7 +124,7 @@ export const SessionsDrawer: React.FC<SessionsDrawerProps> = ({
                     >
                       <h3 className="font-semibold text-xs truncate">{session.title}</h3>
                       <p className={`text-[10px] mt-0.5 ${isLight ? 'text-[#827c70]' : 'text-[#8c8577]'}`}>
-                        {session.turns.length} turns • {new Date(session.updatedAt).toLocaleDateString()}
+                        {session.screens.length} screen{session.screens.length !== 1 ? 's' : ''} • {new Date(session.updatedAt).toLocaleDateString()}
                       </p>
                     </div>
                   )}

@@ -1,4 +1,4 @@
-import { BYOKConfig, DesignSession, DesignSystem } from '../types';
+import { BYOKConfig, DesignSession, DesignScreen, DesignSystem } from '../types';
 
 const BYOK_KEY = 'open_codesign_byok_config';
 const SESSIONS_KEY = 'open_codesign_sessions';
@@ -81,13 +81,46 @@ export function saveBYOKConfig(config: BYOKConfig): void {
   }
 }
 
+// Wraps a legacy (pre-multi-screen) session's turns into a single DesignScreen
+// so old localStorage data keeps working unchanged after this schema change.
+function migrateSessionToScreens(session: DesignSession): DesignSession {
+  if (Array.isArray(session.screens) && session.screens.length > 0) {
+    return session;
+  }
+  const legacyTurns = session.turns && session.turns.length > 0
+    ? session.turns
+    : [{
+        id: `turn-${Date.now()}`,
+        role: 'assistant' as const,
+        prompt: 'Untitled screen',
+        codeHtml: INITIAL_SAMPLE_HTML,
+        timestamp: Date.now(),
+        modelUsed: 'gemini-2.5-flash',
+      }];
+  const screen: DesignScreen = {
+    id: `screen-${session.id}-1`,
+    name: session.title || 'Screen 1',
+    kind: 'other',
+    turns: legacyTurns,
+    activeTurnIndex: Math.min(Math.max(session.activeTurnIndex ?? 0, 0), legacyTurns.length - 1),
+    createdAt: session.createdAt,
+  };
+  return {
+    ...session,
+    screens: [screen],
+    activeScreenId: screen.id,
+  };
+}
+
 export function loadSessions(): DesignSession[] {
   try {
     const raw = localStorage.getItem(SESSIONS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        const migrated = parsed.map(migrateSessionToScreens);
+        saveSessions(migrated);
+        return migrated;
       }
     }
   } catch (e) {
@@ -95,12 +128,12 @@ export function loadSessions(): DesignSession[] {
   }
 
   // Initial default session
-  const defaultSession: DesignSession = {
-    id: 'session-default-1',
-    title: 'Mobile App Concept',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+  const firstScreen: DesignScreen = {
+    id: 'screen-default-1',
+    name: 'Screen 1',
+    kind: 'mobile',
     activeTurnIndex: 0,
+    createdAt: Date.now(),
     turns: [
       {
         id: 'turn-initial-1',
@@ -112,6 +145,14 @@ export function loadSessions(): DesignSession[] {
         tokensCost: 420,
       },
     ],
+  };
+  const defaultSession: DesignSession = {
+    id: 'session-default-1',
+    title: 'Mobile App Concept',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    screens: [firstScreen],
+    activeScreenId: firstScreen.id,
   };
   saveSessions([defaultSession]);
   return [defaultSession];
