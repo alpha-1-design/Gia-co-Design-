@@ -1161,3 +1161,97 @@ Return JSON:
     };
   }
 }
+
+export interface PlannedScreen {
+  name: string;
+  kind: 'website' | 'mobile' | 'dashboard' | 'landing' | 'component' | 'other';
+  purpose: string;
+  prompt: string;
+}
+
+/**
+ * Plans a whole small app/site as a set of linked screens from one
+ * high-level description - this is the Stitch/Replit-style entry point.
+ * Design/mockup output only (static HTML per screen); does not imply any
+ * backend or real navigation logic between screens.
+ */
+export async function planAppScreens(
+  description: string,
+  byok: BYOKConfig,
+  device?: PreviewDevice
+): Promise<{ screens: PlannedScreen[]; tokensEstimate: number }> {
+  const deviceHint = device
+    ? `Screens will be viewed at roughly ${DEVICE_VIEWPORTS[device]?.width || 390}px wide (${device}). Plan accordingly.`
+    : '';
+  const prompt = `A person wants to design (not build a working backend - just the visual screens) the following: "${description}"
+
+${deviceHint}
+
+Break this into a sensible, minimal set of distinct SCREENS a real product like this would need - the essential ones only, not every conceivable page. Between 2 and 6 screens depending on what the idea actually calls for. Do not invent scope beyond what was described.
+
+For each screen give: a short name (2-4 words), the type it best fits (website, mobile, dashboard, landing, or component), a one-sentence purpose, and a detailed, specific generation prompt (as if instructing a designer) that describes exactly what that screen should contain and how it should look, staying visually consistent with the other screens (same product, same style).
+
+Return ONLY this JSON:
+\`\`\`json
+{
+  "screens": [
+    { "name": "...", "kind": "mobile", "purpose": "...", "prompt": "..." }
+  ]
+}
+\`\`\``;
+
+  let rawJson = '';
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (pInfo.provider === 'gemini') {
+    const cleanKey = cleanApiKey(userApiKey);
+    if (!cleanKey) throw new Error('Gemini API Key missing');
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
+      contents: prompt,
+    });
+    rawJson = response.text || '';
+  } else {
+    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
+    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const cleanKey = cleanApiKey(userApiKey);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (cleanKey && cleanKey !== 'ollama') {
+      headers['Authorization'] = `Bearer ${cleanKey}`;
+    }
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await res.json();
+    rawJson = data.choices?.[0]?.message?.content || '';
+  }
+
+  try {
+    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
+    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
+    const parsed = JSON.parse(cleanJsonStr);
+    const screens: PlannedScreen[] = Array.isArray(parsed.screens)
+      ? parsed.screens
+          .filter((s: any) => s?.name && s?.prompt)
+          .slice(0, 6)
+          .map((s: any) => ({
+            name: String(s.name),
+            kind: ['website', 'mobile', 'dashboard', 'landing', 'component'].includes(s.kind) ? s.kind : 'other',
+            purpose: String(s.purpose || ''),
+            prompt: String(s.prompt),
+          }))
+      : [];
+    if (screens.length === 0) throw new Error('empty');
+    return { screens, tokensEstimate: Math.round(prompt.length / 4 + rawJson.length / 4) };
+  } catch (e) {
+    throw new Error('Could not plan screens from that description. Try being more specific about what the app/site is for.');
+  }
+}
+

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, X, Pencil, Smartphone, Globe, LayoutDashboard, PanelTop, Component, MoreHorizontal } from 'lucide-react';
+import { Plus, X, Pencil, Smartphone, Globe, LayoutDashboard, PanelTop, Component, MoreHorizontal, Sparkles } from 'lucide-react';
 import { DesignScreen } from '../types';
 
 interface ScreensRailProps {
@@ -7,6 +7,7 @@ interface ScreensRailProps {
   activeScreenId: string;
   onSelectScreen: (id: string) => void;
   onAddScreen: () => void;
+  onPlanApp: () => void;
   onRenameScreen: (id: string, name: string) => void;
   onDeleteScreen: (id: string) => void;
   theme: 'light' | 'dark';
@@ -26,6 +27,7 @@ export const ScreensRail: React.FC<ScreensRailProps> = ({
   activeScreenId,
   onSelectScreen,
   onAddScreen,
+  onPlanApp,
   onRenameScreen,
   onDeleteScreen,
   theme,
@@ -151,6 +153,16 @@ export const ScreensRail: React.FC<ScreensRailProps> = ({
         title="Add a new screen to this project"
       >
         <Plus className="w-4 h-4" />
+      </button>
+      <button
+        onClick={onPlanApp}
+        className={`h-8 shrink-0 px-2.5 rounded-lg flex items-center gap-1.5 border transition-colors text-xs font-semibold ${
+          isLight ? 'bg-[#d97757]/10 hover:bg-[#d97757]/20 text-[#a94a2e] border-[#d97757]/30' : 'bg-[#d97757]/20 hover:bg-[#d97757]/30 text-[#e28566] border-[#d97757]/40'
+        }`}
+        title="Describe a whole app and get multiple linked screens proposed and generated"
+      >
+        <Sparkles className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Plan App</span>
       </button>
     </div>
   );

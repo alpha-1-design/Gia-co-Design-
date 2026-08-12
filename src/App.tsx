@@ -5,6 +5,7 @@ import { PromptSidebar } from './components/PromptSidebar';
 import { PreviewCanvas } from './components/PreviewCanvas';
 import { ScreensRail } from './components/ScreensRail';
 import { AddScreenModal } from './components/AddScreenModal';
+import { PlanAppModal } from './components/PlanAppModal';
 import { CodeInspector } from './components/CodeInspector';
 import { DecomposeModal } from './components/DecomposeModal';
 import { ExportModal } from './components/ExportModal';
@@ -74,6 +75,7 @@ export default function App() {
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showDesignTools, setShowDesignTools] = useState(false);
   const [showAddScreenPrompt, setShowAddScreenPrompt] = useState(false);
+  const [showPlanApp, setShowPlanApp] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [sharedSession, setSharedSession] = useState<DesignSession | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -437,6 +439,38 @@ export default function App() {
     return newScreen;
   };
 
+  // Adds many screens at once (from the "Plan App" flow) in a single state
+  // update rather than N sequential ones, and switches to the first new
+  // screen so the person lands somewhere real, not on whatever was active
+  // before they started planning.
+  const handleAddScreensBulk = (newScreens: Array<{ name: string; kind: DesignScreen['kind']; html: string }>) => {
+    if (newScreens.length === 0) return;
+    const built: DesignScreen[] = newScreens.map((ns, i) => ({
+      id: `screen-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      name: ns.name,
+      kind: ns.kind,
+      activeTurnIndex: 0,
+      createdAt: Date.now(),
+      turns: [
+        {
+          id: `turn-${Date.now()}-${i}`,
+          role: 'assistant',
+          prompt: `Planned screen: ${ns.name}`,
+          codeHtml: ns.html,
+          timestamp: Date.now(),
+          modelUsed: byok.selectedModel || 'gemini-2.5-flash',
+        },
+      ],
+    }));
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSession.id
+        ? { ...s, screens: [...s.screens, ...built], activeScreenId: built[0].id, updatedAt: Date.now() }
+        : s
+    );
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+  };
+
   const handleSelectScreen = (screenId: string) => {
     const updatedSessions = sessions.map((s) =>
       s.id === activeSession.id ? { ...s, activeScreenId: screenId } : s
@@ -673,6 +707,7 @@ export default function App() {
           activeScreenId={activeSession.activeScreenId}
           onSelectScreen={handleSelectScreen}
           onAddScreen={() => setShowAddScreenPrompt(true)}
+          onPlanApp={() => setShowPlanApp(true)}
           onRenameScreen={handleRenameScreen}
           onDeleteScreen={handleDeleteScreen}
           theme={theme}
@@ -890,6 +925,14 @@ export default function App() {
           handleAddScreen(name, kind, html);
           setShowAddScreenPrompt(false);
         }}
+        byok={byok}
+        previewDevice={previewDevice}
+        designSystemHtml={activeDesignSystem?.sourceHtml}
+      />
+      <PlanAppModal
+        isOpen={showPlanApp}
+        onClose={() => setShowPlanApp(false)}
+        onScreensReady={handleAddScreensBulk}
         byok={byok}
         previewDevice={previewDevice}
         designSystemHtml={activeDesignSystem?.sourceHtml}
