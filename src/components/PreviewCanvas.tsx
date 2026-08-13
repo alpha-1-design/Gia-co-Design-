@@ -248,22 +248,25 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
     }
   };
 
-  // Viewport Container Widths & Styles
+  // Screen bezel only - the visible design content area. Device-specific
+  // chrome (buttons, camera, laptop base) is layered on separately below,
+  // since the ref here is what pin-coordinate math measures against and
+  // that must stay exactly the content area, not any surrounding chrome.
   const getDeviceStyle = () => {
     switch (previewDevice) {
       case 'mobile':
-        return `w-[min(390px,100%)] h-[min(812px,80vh)] rounded-[40px] border-[10px] ${
-          isLight ? 'border-[#38342e]' : 'border-[#2a2723]'
+        return `w-[min(390px,100%)] h-[min(812px,78vh)] rounded-[46px] border-[12px] ${
+          isLight ? 'border-[#1b1a17]' : 'border-[#0d0c0b]'
         } shadow-2xl relative overflow-hidden bg-white`;
       case 'tablet':
-        return `w-[min(768px,100%)] h-[min(900px,80vh)] rounded-2xl border-8 ${
-          isLight ? 'border-[#38342e]' : 'border-[#2a2723]'
+        return `w-[min(768px,100%)] h-[min(900px,78vh)] rounded-[28px] border-[16px] ${
+          isLight ? 'border-[#1b1a17]' : 'border-[#0d0c0b]'
         } shadow-2xl relative overflow-hidden bg-white`;
       case 'desktop':
       default:
-        return `w-full h-full min-h-[600px] rounded-xl border ${
-          isLight ? 'border-[#ded8cc]' : 'border-[#38342e]'
-        } shadow-lg relative overflow-hidden bg-white`;
+        return `w-[min(1180px,100%)] aspect-video rounded-t-lg rounded-b-sm border-x-[14px] border-t-[14px] border-b-[3px] ${
+          isLight ? 'border-[#26241f]' : 'border-[#161512]'
+        } shadow-2xl relative overflow-hidden bg-white`;
     }
   };
 
@@ -443,7 +446,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
           ? 'bg-[radial-gradient(#d6cfc4_1px,transparent_1px)] [background-size:16px_16px]'
           : 'bg-[radial-gradient(#38342e_1px,transparent_1px)] [background-size:16px_16px]'
       }`}>
-        {/* Phone Frame Device Shell */}
+        {/* Device Shell */}
         <div
           ref={containerRef}
           onClick={handleCanvasClick}
@@ -451,11 +454,43 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             isPinMode ? 'cursor-crosshair ring-2 ring-[#d97757]' : ''
           }`}
         >
-          {/* Phone Speaker Notch Bar for Mobile Frame */}
           {previewDevice === 'mobile' && (
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-4 bg-[#2a2723] rounded-b-xl z-20 flex items-center justify-center">
-              <div className="w-10 h-1 bg-[#3d3831] rounded-full" />
-            </div>
+            <>
+              {/* Dynamic-island style notch */}
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-6 bg-[#0d0c0b] rounded-full z-20" />
+              {/* Side buttons - purely decorative chrome, protrude slightly
+                  past the bezel edge for a physical-button look */}
+              <div className="absolute -left-[14px] top-24 w-[3px] h-8 rounded-r bg-[#1b1a17] z-20" />
+              <div className="absolute -left-[14px] top-36 w-[3px] h-14 rounded-r bg-[#1b1a17] z-20" />
+              <div className="absolute -right-[14px] top-32 w-[3px] h-16 rounded-l bg-[#1b1a17] z-20" />
+              {/* Home indicator */}
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-1 rounded-full bg-[#0d0c0b]/25 z-20" />
+            </>
+          )}
+          {previewDevice === 'tablet' && (
+            <>
+              {/* Front camera */}
+              <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#0d0c0b] ring-2 ring-[#26241f] z-20" />
+              {/* Side power/volume buttons */}
+              <div className="absolute -right-[18px] top-20 w-[4px] h-10 rounded-r bg-[#1b1a17] z-20" />
+              <div className="absolute -right-[18px] top-32 w-[4px] h-16 rounded-r bg-[#1b1a17] z-20" />
+            </>
+          )}
+          {previewDevice === 'desktop' && (
+            <>
+              {/* Webcam, sitting in the top bezel thickness itself */}
+              <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#3d3831] ring-1 ring-black/40 z-20" />
+              {/* Browser-chrome bar - traffic-light dots + a fake address
+                  pill, the clearest "this is a computer, not a tablet" cue
+                  without needing a separate keyboard-deck element that would
+                  fight the frame's overflow-hidden clipping. */}
+              <div className="absolute top-0 left-0 right-0 h-7 bg-[#f4f0e8] border-b border-[#e2ddd3] flex items-center gap-1.5 px-3 z-10">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+                <span className="flex-1 mx-3 h-4 rounded bg-white border border-[#e2ddd3]" />
+              </div>
+            </>
           )}
 
           {/* Code Iframe */}
@@ -464,7 +499,7 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
             ref={iframeRef}
             srcDoc={codeHtml}
             title="Design Preview"
-            className="w-full h-full border-none bg-white pointer-events-auto"
+            className={`w-full border-none bg-white pointer-events-auto ${previewDevice === 'desktop' ? 'h-[calc(100%-28px)] mt-7' : 'h-full'}`}
             sandbox="allow-scripts allow-modals allow-same-origin"
           />
 
@@ -604,11 +639,6 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
                 </div>
               );
             })()
-          )}
-
-          {/* Home Bar Indicator for Mobile Frame */}
-          {previewDevice === 'mobile' && (
-            <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-28 h-1 bg-[#3d3831] rounded-full z-20" />
           )}
         </div>
       </div>
