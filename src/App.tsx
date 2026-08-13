@@ -911,6 +911,7 @@ export default function App() {
         sourceHtml={activeTurn?.codeHtml || null}
         byok={byok}
         designSystemHtml={activeDesignSystem?.sourceHtml}
+        previewDevice={previewDevice}
         theme={theme}
         onInsertComponent={handleInsertComponent}
       />

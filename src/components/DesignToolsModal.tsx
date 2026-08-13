@@ -13,18 +13,20 @@ import {
   AlertTriangle,
   Rocket,
   ExternalLink,
+  PlayCircle,
 } from 'lucide-react';
-import { BYOKConfig, DesignToken, AccessibilityReport, AutoLayoutConfig, ExportPreset } from '../types';
+import { BYOKConfig, DesignToken, AccessibilityReport, AutoLayoutConfig, ExportPreset, PreviewDevice } from '../types';
 import {
   generateComponentFromPrompt,
   extractDesignTokens,
   generateAccessibilityReport,
   generateAutoLayoutConfig,
   convertToPlatform,
+  generateDesignCode,
 } from '../lib/ai';
 import { deployToVercel } from '../lib/vercelDeploy';
 
-type Tab = 'component' | 'tokens' | 'a11y' | 'layout' | 'export' | 'deploy';
+type Tab = 'component' | 'tokens' | 'a11y' | 'layout' | 'export' | 'deploy' | 'motion';
 
 interface DesignToolsModalProps {
   isOpen: boolean;
@@ -32,6 +34,7 @@ interface DesignToolsModalProps {
   sourceHtml: string | null;
   byok: BYOKConfig;
   designSystemHtml?: string;
+  previewDevice: PreviewDevice;
   theme: 'light' | 'dark';
   onInsertComponent: (html: string, label: string) => void;
 }
@@ -81,8 +84,18 @@ const PLATFORM_PRESETS: Array<{ label: string; preset: ExportPreset }> = [
   },
 ];
 
+const MOTION_PRESETS: Array<{ label: string; prompt: string }> = [
+  { label: 'Fade In on Load', prompt: 'Add a subtle fade-in animation (opacity 0 to 1, slight upward translate) to the main content sections as the page loads, staggered slightly so sections appear one after another rather than all at once.' },
+  { label: 'Staggered Card Reveal', prompt: 'Add a staggered entrance animation to any cards/list items - each one fades and slides up into place with a short delay between items (e.g. 60-100ms apart) so they cascade in.' },
+  { label: 'Hover Lift', prompt: 'Add a hover effect to buttons and cards: on hover, lift slightly (translateY -2 to -4px) with a soft shadow increase and a quick, smooth transition (150-200ms ease-out). Buttons should also have a satisfying active/pressed state (slight scale down).' },
+  { label: 'Smooth Page Transitions', prompt: 'Add subtle transition animations to any tab switches, modal open/close, or section reveals already present in the design - fade and slight scale/translate rather than an abrupt cut.' },
+  { label: 'Attention Pulse', prompt: 'Add a subtle, slow, continuous pulse animation (scale or opacity, gentle, not distracting) to the single most important call-to-action element on the screen, to draw the eye without being obnoxious.' },
+  { label: 'Loading Skeleton Shimmer', prompt: 'If there are any placeholder/skeleton-style elements, add a shimmer/sweep animation across them (a light gradient band moving left to right on a loop) to suggest loading state.' },
+];
+
 const TABS: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: 'component', label: 'Component', icon: Wand2 },
+  { id: 'motion', label: 'Motion', icon: PlayCircle },
   { id: 'tokens', label: 'Tokens', icon: Palette },
   { id: 'a11y', label: 'Accessibility', icon: ShieldCheck },
   { id: 'layout', label: 'Layout', icon: LayoutTemplate },
@@ -119,6 +132,7 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
   sourceHtml,
   byok,
   designSystemHtml,
+  previewDevice,
   theme,
   onInsertComponent,
 }) => {
@@ -158,6 +172,12 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
   const [deployResult, setDeployResult] = useState<{ url: string } | null>(null);
   const [deployLoading, setDeployLoading] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+
+  // Motion state
+  const [motionPrompt, setMotionPrompt] = useState('');
+  const [motionResult, setMotionResult] = useState<{ codeHtml: string } | null>(null);
+  const [motionLoading, setMotionLoading] = useState(false);
+  const [motionError, setMotionError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -250,6 +270,26 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
       setDeployError(e?.message || 'Deployment failed.');
     } finally {
       setDeployLoading(false);
+    }
+  };
+
+  const runMotion = async () => {
+    if (!sourceHtml || !motionPrompt.trim()) return;
+    setMotionLoading(true);
+    setMotionError(null);
+    setMotionResult(null);
+    try {
+      const instruction =
+        `Add motion/animation to this existing design. Modify ONLY what's needed to add the requested ` +
+        `animations - keep all layout, content, and styling otherwise exactly the same. Use plain CSS ` +
+        `(@keyframes, transition, animation) inline in a <style> tag - no external animation libraries, ` +
+        `since this must work as a single static HTML file. Request: ${motionPrompt}`;
+      const result = await generateDesignCode(instruction, sourceHtml, byok, [], designSystemHtml, undefined, previewDevice);
+      setMotionResult({ codeHtml: result.html });
+    } catch (e: any) {
+      setMotionError(e?.message || 'Failed to add motion.');
+    } finally {
+      setMotionLoading(false);
     }
   };
 
@@ -371,6 +411,75 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
                     </button>
                   </div>
                 </div>
+              )}
+            </>
+          )}
+
+          {tab === 'motion' && (
+            <>
+              <p className="text-xs opacity-70">Add real CSS animations to the current design - entrance effects, hover states, transitions. Modifies the design in place (as a new version, original stays in history).</p>
+              {!sourceHtml ? (
+                <div className={`${cardCls} text-xs opacity-70`}>{noSourceMsg}</div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MOTION_PRESETS.map((p) => (
+                      <button
+                        key={p.label}
+                        onClick={() => setMotionPrompt(p.prompt)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                          motionPrompt === p.prompt
+                            ? 'bg-[#d97757] text-white border-[#c66545]'
+                            : isLight
+                            ? 'bg-white hover:bg-[#f4f0e8] text-[#575249] border-[#e2ddd3]'
+                            : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={motionPrompt}
+                    onChange={(e) => setMotionPrompt(e.target.value)}
+                    placeholder="Pick a preset above, or describe the motion yourself - e.g. 'the hero image should slowly drift/parallax as you scroll'"
+                    rows={3}
+                    className={inputCls + ' resize-none'}
+                  />
+                  <button onClick={runMotion} disabled={motionLoading || !motionPrompt.trim()} className={primaryBtnCls}>
+                    {motionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+                    {motionLoading ? 'Adding motion...' : 'Add Motion'}
+                  </button>
+                  {motionError && (
+                    <div className={`${cardCls} text-xs text-red-500 flex items-start gap-2`}>
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                      {motionError}
+                    </div>
+                  )}
+                  {motionResult && (
+                    <div className={cardCls}>
+                      <p className="text-xs font-semibold mb-2">Preview (hover/scroll to see live effects)</p>
+                      <div className={`rounded-lg overflow-hidden border ${isLight ? 'border-[#e2ddd3]' : 'border-[#3d3831]'}`}>
+                        <iframe
+                          title="motion-preview"
+                          srcDoc={motionResult.codeHtml}
+                          sandbox="allow-scripts"
+                          className="w-full h-64 bg-white"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 mt-3">
+                        <CopyButton text={motionResult.codeHtml} isLight={isLight} />
+                        <button
+                          onClick={() => onInsertComponent(motionResult.codeHtml, 'With Motion')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${isLight ? 'bg-[#d97757]/10 hover:bg-[#d97757]/20 text-[#a94a2e] border border-[#d97757]/30' : 'bg-[#d97757]/20 hover:bg-[#d97757]/30 text-[#e28566] border border-[#d97757]/40'}`}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Apply as New Version
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
