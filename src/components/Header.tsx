@@ -15,7 +15,8 @@ import {
   Link2,
   History,
   Wand2,
-  MoreVertical
+  MoreVertical,
+  LibraryBig
 } from 'lucide-react';
 import { PreviewDevice, BYOKConfig, AIProvider } from '../types';
 import { fetchLiveModels } from '../lib/ai';
@@ -42,6 +43,7 @@ interface HeaderProps {
   onOpenDesignSystems: () => void;
   onOpenVersionHistory: () => void;
   onOpenDesignTools: () => void;
+  onOpenComponentLibrary: () => void;
   activeDesignSystemName?: string | null;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
@@ -64,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDesignSystems,
   onOpenVersionHistory,
   onOpenDesignTools,
+  onOpenComponentLibrary,
   activeDesignSystemName,
   theme,
   onToggleTheme,
@@ -461,6 +464,7 @@ export const Header: React.FC<HeaderProps> = ({
               {[
                 { icon: History, label: 'Version History', onClick: onOpenVersionHistory },
                 { icon: Wand2, label: 'Design Tools', onClick: onOpenDesignTools },
+                { icon: LibraryBig, label: 'Component Library', onClick: onOpenComponentLibrary },
                 { icon: Layers, label: 'UI Kit (Decompose)', onClick: onOpenDecompose },
                 {
                   icon: Palette,

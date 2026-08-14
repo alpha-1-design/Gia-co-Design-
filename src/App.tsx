@@ -16,12 +16,14 @@ import { ShareModal } from './components/ShareModal';
 import { UpdateModal } from './components/UpdateModal';
 import { VersionHistoryModal } from './components/VersionHistoryModal';
 import { DesignToolsModal } from './components/DesignToolsModal';
+import { ComponentLibraryModal } from './components/ComponentLibraryModal';
 import { Capacitor } from '@capacitor/core';
 import { 
   BYOKConfig, 
   DesignSession, 
   DesignScreen,
   DesignTurn, 
+  SavedComponent,
   PreviewDevice, 
   PinComment, 
   UIKitDecomposition,
@@ -41,7 +43,9 @@ import {
   loadDesignSystems,
   saveDesignSystems,
   getActiveDesignSystemId,
-  setActiveDesignSystemId
+  setActiveDesignSystemId,
+  loadComponentLibrary,
+  saveComponentLibrary
 } from './lib/storage';
 import { generateDesignCode, generateVariants, critiqueDesign } from './lib/ai';
 import { getProviderDefinition } from './lib/providers';
@@ -76,6 +80,8 @@ export default function App() {
   const [showDesignTools, setShowDesignTools] = useState(false);
   const [showAddScreenPrompt, setShowAddScreenPrompt] = useState(false);
   const [showPlanApp, setShowPlanApp] = useState(false);
+  const [showComponentLibrary, setShowComponentLibrary] = useState(false);
+  const [componentLibrary, setComponentLibrary] = useState<SavedComponent[]>(loadComponentLibrary);
   const [showShareModal, setShowShareModal] = useState(false);
   const [sharedSession, setSharedSession] = useState<DesignSession | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -614,6 +620,32 @@ export default function App() {
     if (window.innerWidth < 1024) setMobileTab('preview');
   };
 
+  // --- Component Library ---
+  const handleSaveToLibrary = (html: string, name: string, category: 'component' | 'motion' | 'other') => {
+    const entry: SavedComponent = {
+      id: `saved-${Date.now()}`,
+      name: name.trim() || 'Untitled',
+      codeHtml: html,
+      tags: [],
+      category,
+      createdAt: Date.now(),
+    };
+    const updated = [entry, ...componentLibrary];
+    setComponentLibrary(updated);
+    saveComponentLibrary(updated);
+  };
+
+  const handleDeleteFromLibrary = (id: string) => {
+    const updated = componentLibrary.filter((c) => c.id !== id);
+    setComponentLibrary(updated);
+    saveComponentLibrary(updated);
+  };
+
+  const handleInsertFromLibrary = (html: string, name: string) => {
+    handleInsertComponent(html, name);
+    setShowComponentLibrary(false);
+  };
+
   const totalTokens = activeScreen.turns.reduce((acc, t) => acc + (t.tokensCost || 0), 0);
   const sharedTurn = sharedSession
     ? (sharedSession.screens?.[0]?.turns[sharedSession.screens[0].activeTurnIndex] || sharedSession.screens?.[0]?.turns[0])
@@ -641,6 +673,7 @@ export default function App() {
         onOpenDesignSystems={() => setShowDesignSystemModal(true)}
         onOpenVersionHistory={() => setShowVersionHistory(true)}
         onOpenDesignTools={() => setShowDesignTools(true)}
+        onOpenComponentLibrary={() => setShowComponentLibrary(true)}
         activeDesignSystemName={activeDesignSystem?.name ?? null}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -914,6 +947,15 @@ export default function App() {
         previewDevice={previewDevice}
         theme={theme}
         onInsertComponent={handleInsertComponent}
+        onSaveToLibrary={handleSaveToLibrary}
+      />
+      <ComponentLibraryModal
+        isOpen={showComponentLibrary}
+        onClose={() => setShowComponentLibrary(false)}
+        components={componentLibrary}
+        onDelete={handleDeleteFromLibrary}
+        onInsert={handleInsertFromLibrary}
+        theme={theme}
       />
       <AddScreenModal
         isOpen={showAddScreenPrompt}

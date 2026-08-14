@@ -14,6 +14,7 @@ import {
   Rocket,
   ExternalLink,
   PlayCircle,
+  Save,
 } from 'lucide-react';
 import { BYOKConfig, DesignToken, AccessibilityReport, AutoLayoutConfig, ExportPreset, PreviewDevice } from '../types';
 import {
@@ -37,6 +38,7 @@ interface DesignToolsModalProps {
   previewDevice: PreviewDevice;
   theme: 'light' | 'dark';
   onInsertComponent: (html: string, label: string) => void;
+  onSaveToLibrary: (html: string, name: string, category: 'component' | 'motion' | 'other') => void;
 }
 
 const PLATFORM_PRESETS: Array<{ label: string; preset: ExportPreset }> = [
@@ -135,6 +137,7 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
   previewDevice,
   theme,
   onInsertComponent,
+  onSaveToLibrary,
 }) => {
   const [tab, setTab] = useState<Tab>('component');
   const isLight = theme === 'light';
@@ -403,6 +406,13 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
                   <div className="flex items-center gap-2 mt-3">
                     <CopyButton text={componentResult.codeHtml} isLight={isLight} />
                     <button
+                      onClick={() => onSaveToLibrary(componentResult.codeHtml, componentResult.name, 'component')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${isLight ? 'bg-white hover:bg-[#f4f0e8] text-[#575249] border border-[#e2ddd3]' : 'bg-[#332f2a] hover:bg-[#3d3831] text-[#f4f0ea] border border-[#3d3831]'}`}
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      Save
+                    </button>
+                    <button
                       onClick={() => onInsertComponent(componentResult.codeHtml, componentResult.name)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${isLight ? 'bg-[#d97757]/10 hover:bg-[#d97757]/20 text-[#a94a2e] border border-[#d97757]/30' : 'bg-[#d97757]/20 hover:bg-[#d97757]/30 text-[#e28566] border border-[#d97757]/40'}`}
                     >
@@ -469,6 +479,13 @@ export const DesignToolsModal: React.FC<DesignToolsModalProps> = ({
                       </div>
                       <div className="flex items-center gap-2 mt-3">
                         <CopyButton text={motionResult.codeHtml} isLight={isLight} />
+                        <button
+                          onClick={() => onSaveToLibrary(motionResult.codeHtml, motionPrompt.slice(0, 40) || 'Motion Design', 'motion')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${isLight ? 'bg-white hover:bg-[#f4f0e8] text-[#575249] border border-[#e2ddd3]' : 'bg-[#332f2a] hover:bg-[#3d3831] text-[#f4f0ea] border border-[#3d3831]'}`}
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          Save
+                        </button>
                         <button
                           onClick={() => onInsertComponent(motionResult.codeHtml, 'With Motion')}
                           className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${isLight ? 'bg-[#d97757]/10 hover:bg-[#d97757]/20 text-[#a94a2e] border border-[#d97757]/30' : 'bg-[#d97757]/20 hover:bg-[#d97757]/30 text-[#e28566] border border-[#d97757]/40'}`}

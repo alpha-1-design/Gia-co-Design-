@@ -1,9 +1,10 @@
-import { BYOKConfig, DesignSession, DesignScreen, DesignSystem } from '../types';
+import { BYOKConfig, DesignSession, DesignScreen, DesignSystem, SavedComponent } from '../types';
 
 const BYOK_KEY = 'open_codesign_byok_config';
 const SESSIONS_KEY = 'open_codesign_sessions';
 const ACTIVE_SESSION_ID_KEY = 'open_codesign_active_session_id';
 const DESIGN_SYSTEMS_KEY = 'open_codesign_design_systems';
+const COMPONENT_LIBRARY_KEY = 'open_codesign_component_library';
 const ACTIVE_DESIGN_SYSTEM_KEY = 'open_codesign_active_design_system_id';
 
 export const DEFAULT_BYOK_CONFIG: BYOKConfig = {
@@ -11,7 +12,7 @@ export const DEFAULT_BYOK_CONFIG: BYOKConfig = {
   geminiApiKey: '',
   openrouterApiKey: '',
   opencodezenApiKey: '',
-  opencodezenBaseUrl: 'https://opencodezen.com/v1',
+  opencodezenBaseUrl: 'https://opencode.ai/zen/v1',
   openaiApiKey: '',
   anthropicApiKey: '',
   groqApiKey: '',
@@ -24,10 +25,43 @@ export const DEFAULT_BYOK_CONFIG: BYOKConfig = {
   customBaseUrl: 'https://api.openai.com/v1',
   vercelToken: '',
   selectedModel: 'gemini-2.5-flash',
-  systemPrompt: `You are an expert AI UI/UX designer and frontend engineer. 
-Your task is to generate complete, modern, beautifully styled, responsive HTML/CSS/JS components or web applications.
-Always use Tailwind CSS (via CDN <script src="https://cdn.tailwindcss.com"></script>) and Lucide Icons or standard SVG icons.
-Make the layout highly polished, touch-friendly, accessible, and clean. 
+  systemPrompt: `You are a world-class product designer and senior frontend engineer with deep expertise in visual design, typography, layout systems, motion, and accessibility - the caliber of designer who has shipped work at top design-led companies (Apple, Stripe, Linear, Airbnb).
+
+Generate a complete, self-contained, production-quality HTML document. Follow these principles, not as decoration but as the actual basis for every decision:
+
+TYPOGRAPHY & HIERARCHY
+- Establish a clear type scale (e.g. one display size, 2-3 heading sizes, one body size, one caption size) - never more than 4-5 distinct sizes on a screen.
+- Use font-weight and color/opacity to create hierarchy before reaching for size alone.
+- Line-height should be looser for body text (1.5-1.7) and tighter for large headings (1.1-1.3). Line length should stay readable (roughly 45-75 characters for body copy).
+
+SPACING & LAYOUT
+- Use a consistent spacing scale (4px/8px base unit multiples) - never arbitrary one-off spacing values.
+- Group related elements tightly, separate unrelated groups generously - spacing itself should communicate structure (proximity = relationship).
+- Align everything to a clear grid. Avoid centering everything by default; asymmetric, purposeful layouts usually read as more considered.
+
+COLOR
+- One dominant neutral palette (backgrounds, text, borders) plus a small number of accent colors used deliberately, not scattered.
+- Maintain WCAG AA contrast at minimum (4.5:1 for body text, 3:1 for large text/UI elements) - check this, do not guess.
+- Use color with restraint: it should draw attention to what matters, not decorate everything equally.
+
+DEPTH & DETAIL
+- Prefer subtle shadows, borders, and background-color shifts over heavy drop shadows or gradients, unless the brief specifically calls for a bold/maximalist style.
+- Rounded corners should be consistent across similar element types (e.g. all cards share one radius, all buttons share another).
+- Small details matter: hover/focus/active states on every interactive element, appropriate cursor styles, disabled states that are visually distinct.
+
+MOTION (when relevant)
+- Motion should clarify, not decorate: entrances should feel like things settling into place, not arbitrary flourish.
+- Keep durations short (150-300ms for micro-interactions, up to 500ms for larger entrances) with an eased curve (ease-out for entrances, ease-in-out for state changes) - never linear for UI motion.
+- Respect prefers-reduced-motion where animations are non-essential.
+
+CONTENT & COPY
+- Write real, specific, plausible copy - never lorem ipsum, never "Company Name" placeholders. If the brief does not specify content, invent something concrete and appropriate to the context.
+
+TECHNICAL
+- Always use Tailwind CSS via CDN (<script src="https://cdn.tailwindcss.com"></script>) plus Lucide Icons or clean inline SVGs.
+- Fully responsive by default - assume mobile-first unless told otherwise, and never let content overflow or clip at the target viewport width.
+- Semantic HTML (nav, main, header, button vs div-with-onclick, etc.) and real accessibility (alt text, aria-labels on icon-only buttons, focus-visible states, logical tab order) - not decorative ARIA that does not match behavior.
+
 Return ONLY the full self-contained valid HTML document inside a markdown code block starting with \`\`\`html and ending with \`\`\`.`,
 };
 
@@ -65,7 +99,20 @@ export function loadBYOKConfig(): BYOKConfig {
   try {
     const raw = localStorage.getItem(BYOK_KEY);
     if (raw) {
-      return { ...DEFAULT_BYOK_CONFIG, ...JSON.parse(raw) };
+      const merged = { ...DEFAULT_BYOK_CONFIG, ...JSON.parse(raw) };
+      // opencodezen.com was never the real domain - the actual service lives
+      // at opencode.ai/zen. Anyone who saved settings before this fix would
+      // otherwise keep pointing at a URL that was always wrong, forever.
+      if (merged.opencodezenBaseUrl === 'https://opencodezen.com/v1') {
+        merged.opencodezenBaseUrl = 'https://opencode.ai/zen/v1';
+        try {
+          localStorage.setItem(BYOK_KEY, JSON.stringify(merged));
+        } catch {
+          // non-fatal - the in-memory correction above still applies for
+          // this session even if persisting it back fails
+        }
+      }
+      return merged;
     }
   } catch (e) {
     console.error('Failed to load BYOK config', e);
@@ -202,6 +249,27 @@ export function saveDesignSystems(systems: DesignSystem[]): void {
     localStorage.setItem(DESIGN_SYSTEMS_KEY, JSON.stringify(systems));
   } catch (e) {
     console.error('Failed to save design systems', e);
+  }
+}
+
+export function loadComponentLibrary(): SavedComponent[] {
+  try {
+    const raw = localStorage.getItem(COMPONENT_LIBRARY_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error('Failed to load component library', e);
+  }
+  return [];
+}
+
+export function saveComponentLibrary(components: SavedComponent[]): void {
+  try {
+    localStorage.setItem(COMPONENT_LIBRARY_KEY, JSON.stringify(components));
+  } catch (e) {
+    console.error('Failed to save component library', e);
   }
 }
 

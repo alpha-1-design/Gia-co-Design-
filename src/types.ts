@@ -126,6 +126,15 @@ export interface DesignTurn {
   designTokens?: DesignToken[];
 }
 
+export interface SavedComponent {
+  id: string;
+  name: string;
+  codeHtml: string;
+  tags: string[];
+  category: 'component' | 'motion' | 'other';
+  createdAt: number;
+}
+
 export interface DesignScreen {
   id: string;
   name: string;
