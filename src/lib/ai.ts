@@ -136,15 +136,38 @@ export function getApiKeyForProvider(byok: BYOKConfig) {
 function buildViewportInstruction(device?: PreviewDevice): string {
   if (!device) return '';
   const { width, height } = DEVICE_VIEWPORTS[device] || DEVICE_VIEWPORTS.mobile;
-  return (
+
+  const baseConstraint =
     `\n\nTARGET VIEWPORT: This design will be previewed and screenshotted at exactly ${width}px wide ` +
     `(${device}). It MUST look correct at that width with no horizontal overflow, no clipped or ` +
     `overlapping text, numbers, or icons, and no elements crammed together or running into each other. ` +
     `Use responsive units (%, flex, grid, min-w-0, truncate where needed) rather than fixed pixel widths ` +
     `wider than ${width}px. Stat cards, sidebars, and multi-column layouts must stack or shrink ` +
     `appropriately at this width rather than overflowing it. Vertical scrolling for a tall page is fine; ` +
-    `horizontal overflow or visual clipping is not.`
-  );
+    `horizontal overflow or visual clipping is not.`;
+
+  const deviceContext: Record<string, string> = {
+    mobile:
+      `\n\nDEVICE CONTEXT: This screen will be shown inside a realistic phone frame - your output IS the ` +
+      `screen content of a native-feeling mobile app, not a webpage being viewed on a phone. Concretely: ` +
+      `do NOT draw your own status bar, browser chrome, address bar, or a fake notch/home-indicator - the ` +
+      `frame around your output already provides those. Do NOT design a shrunk-down desktop website - use ` +
+      `mobile-native patterns: a bottom tab bar or hamburger menu instead of a horizontal desktop nav, one ` +
+      `column by default, large thumb-reachable touch targets (minimum ~44px tap area), generous spacing ` +
+      `between tappable elements so nothing is accidentally tappable next to something else. Content should ` +
+      `run edge-to-edge with sensible internal padding, not float in a centered card with wasted margin on ` +
+      `both sides the way a desktop site would.`,
+    tablet:
+      `\n\nDEVICE CONTEXT: This will be shown inside a realistic tablet frame - design it as a real tablet ` +
+      `app screen, not a scaled phone or a desktop site. Tablet apps commonly use a two-pane or sidebar+detail ` +
+      `layout since there's room for it, but everything must still read as touch-first (larger tap targets ` +
+      `than a desktop site would use). Do not draw your own status bar or browser chrome.`,
+    desktop:
+      `\n\nDEVICE CONTEXT: This will be shown inside a browser-chrome frame that already includes a top bar - ` +
+      `design the page content itself, not a duplicate browser window or address bar.`,
+  };
+
+  return baseConstraint + (deviceContext[device] || '');
 }
 
 export async function generateVariants(

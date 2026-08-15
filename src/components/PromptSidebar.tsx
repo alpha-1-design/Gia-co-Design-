@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, 
   Sparkles, 
@@ -6,12 +6,11 @@ import {
   User, 
   Image as ImageIcon, 
   RefreshCw, 
-  ChevronDown,
-  ChevronUp,
-  MessageSquare,
   LayoutGrid,
   Plus,
-  X
+  X,
+  Pin as PinIcon,
+  Bot,
 } from 'lucide-react';
 import { DesignTurn, ImageAttachment } from '../types';
 import { VisualLibraryPanel } from './VisualLibraryPanel';
@@ -42,12 +41,22 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
   theme = 'light',
 }) => {
   const [inputPrompt, setInputPrompt] = useState('');
-  const [sidebarTab, setSidebarTab] = useState<'prompt' | 'patterns' | 'history'>('prompt');
+  const [sidebarTab, setSidebarTab] = useState<'chat' | 'patterns'>('chat');
   const [isDragOver, setIsDragOver] = useState(false);
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
+  const feedEndRef = useRef<HTMLDivElement>(null);
   const isLight = theme === 'light';
+
+  useEffect(() => {
+    if (sidebarTab === 'chat' && typeof feedEndRef.current?.scrollIntoView === 'function') {
+      try {
+        feedEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      } catch {
+        // Non-fatal - worst case the feed just doesn't auto-scroll
+      }
+    }
+  }, [turns.length, sidebarTab]);
 
   const readFileAsDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -151,15 +160,15 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
         <div className="flex items-center gap-1 p-0.5 rounded-xl bg-black/5 dark:bg-white/5">
           <button
             type="button"
-            onClick={() => setSidebarTab('prompt')}
+            onClick={() => setSidebarTab('chat')}
             className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1 ${
-              sidebarTab === 'prompt'
+              sidebarTab === 'chat'
                 ? 'bg-white dark:bg-[#2e2a25] text-[#d97757] shadow-xs'
                 : 'text-[#736e65] dark:text-[#9e978a] hover:text-[#22201d] dark:hover:text-[#f4f0ea]'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Prompt</span>
+            <span>Chat ({turns.length})</span>
           </button>
           <button
             type="button"
@@ -173,18 +182,6 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
             <LayoutGrid className="w-3.5 h-3.5" />
             <span>UI Patterns</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setSidebarTab('history')}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1 ${
-              sidebarTab === 'history'
-                ? 'bg-white dark:bg-[#2e2a25] text-[#d97757] shadow-xs'
-                : 'text-[#736e65] dark:text-[#9e978a] hover:text-[#22201d] dark:hover:text-[#f4f0ea]'
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>History ({turns.length})</span>
-          </button>
         </div>
       </div>
 
@@ -195,139 +192,118 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
             onInsertSnippet={handleInsertSnippet}
             theme={theme}
           />
-        ) : sidebarTab === 'history' ? (
-          <div className={`flex-1 overflow-y-auto p-3 space-y-2 ${
-            isLight ? 'bg-[#faf8f5]/60' : 'bg-[#181715]/30'
-          }`}>
-            <div className="flex items-center justify-between pb-1 border-b border-[#e6e1d7] dark:border-[#38342e]">
-              <span className="text-[11px] font-bold text-[#736e65] dark:text-[#9e978a]">
-                Version History ({turns.length})
-              </span>
-              <button
-                onClick={onDecompose}
-                className="text-[#d97757] hover:text-[#c66545] font-semibold flex items-center gap-1 text-[11px]"
-              >
-                <Layers className="w-3 h-3" />
-                <span>Decompose Kit</span>
-              </button>
-            </div>
-            {turns.map((turn, idx) => (
-              <div
-                key={turn.id}
-                onClick={() => {
-                  onSelectTurn(idx);
-                  setSidebarTab('prompt');
-                }}
-                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                  idx === activeTurnIndex
-                    ? isLight
-                      ? 'bg-[#d97757]/10 border-[#d97757] text-[#22201d]'
-                      : 'bg-[#d97757]/20 border-[#d97757] text-white'
-                    : isLight
-                    ? 'bg-white hover:bg-[#f7f4ec] border-[#e6e1d7] text-[#575249]'
-                    : 'bg-[#2a2723] hover:bg-[#332f2a] border-[#3d3831] text-[#c4bdae]'
-                }`}
-              >
-                <div className={`flex items-center justify-between mb-1 text-[11px] ${
-                  isLight ? 'text-[#736e65]' : 'text-[#9e978a]'
-                }`}>
-                  <span className="font-semibold text-inherit">Turn #{idx + 1}</span>
-                  <span>{new Date(turn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-                <p className="line-clamp-2 font-medium text-inherit">{turn.prompt}</p>
-              </div>
-            ))}
-          </div>
         ) : (
-          /* Prompt Tab View */
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
-            {/* Recent Prompt Card */}
-            {turns[activeTurnIndex] && (
-              <div className="space-y-3">
-                <div className={`p-3.5 rounded-2xl border space-y-2 shadow-sm ${
-                  isLight 
-                    ? 'bg-white border-[#e6e1d7] text-[#22201d]' 
-                    : 'bg-[#2a2723] border-[#3d3831] text-[#f4f0ea]'
-                }`}>
-                  <div className={`flex items-center justify-between text-[11px] ${
-                    isLight ? 'text-[#736e65]' : 'text-[#9e978a]'
-                  }`}>
-                    <span className="flex items-center gap-1 font-semibold text-[#d97757]">
-                      <User className="w-3.5 h-3.5" />
-                      Active Version #{activeTurnIndex + 1}
-                    </span>
-                    <span className="font-mono text-[10px]">{turns[activeTurnIndex].modelUsed}</span>
-                  </div>
-                  <p className="text-xs font-serif-claude text-inherit font-medium leading-relaxed italic">
-                    "{turns[activeTurnIndex].prompt}"
-                  </p>
-                </div>
-
-                {turns[activeTurnIndex].pins && turns[activeTurnIndex].pins!.length > 0 && (
-                  <div className={`p-3 rounded-xl border text-xs space-y-1.5 ${
-                    isLight
-                      ? 'bg-[#fef3c7]/60 border-[#f59e0b]/40 text-[#92400e]'
-                      : 'bg-amber-950/30 border-amber-800/40 text-amber-200'
-                  }`}>
-                    <span className="font-semibold block">
-                      Active Pin Comments ({turns[activeTurnIndex].pins!.length})
-                    </span>
-                    {turns[activeTurnIndex].pins!.map((p, pIdx) => (
-                      <div key={p.id} className="text-[11px] pl-2 border-l border-amber-500/50">
-                        Pin #{pIdx + 1}: "{p.comment}"
+          /* Chat Feed - every turn as a message, AI turns carry an inline
+             live preview so the design shows up right in the conversation,
+             not tucked away behind a separate tab. Tapping a preview syncs
+             the main canvas to that version. */
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {turns.length === 0 ? (
+              <div className="text-center py-10 px-4">
+                <Sparkles className="w-6 h-6 mx-auto mb-2 text-[#d97757] opacity-60" />
+                <p className={`text-xs ${isLight ? 'text-[#827c70]' : 'text-[#8c8577]'}`}>
+                  Describe what you want to design below - your conversation and every version you generate will show up here.
+                </p>
+              </div>
+            ) : (
+              turns.map((turn, idx) => {
+                const isActive = idx === activeTurnIndex;
+                return (
+                  <div key={turn.id} className="space-y-1.5">
+                    {/* User message */}
+                    <div className="flex items-start gap-2">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                        isLight ? 'bg-[#e2ddd3] text-[#575249]' : 'bg-[#3d3831] text-[#c4bdae]'
+                      }`}>
+                        <User className="w-3.5 h-3.5" />
                       </div>
-                    ))}
+                      <div className={`flex-1 min-w-0 p-2.5 rounded-2xl rounded-tl-sm border text-xs leading-relaxed ${
+                        isLight ? 'bg-white border-[#e6e1d7] text-[#22201d]' : 'bg-[#2a2723] border-[#3d3831] text-[#f4f0ea]'
+                      }`}>
+                        <p className="break-words">{turn.prompt}</p>
+                        {turn.pins && turn.pins.length > 0 && (
+                          <div className={`mt-1.5 pt-1.5 border-t space-y-1 ${isLight ? 'border-[#e6e1d7]' : 'border-[#3d3831]'}`}>
+                            {turn.pins.map((p, pIdx) => (
+                              <div key={p.id} className="flex items-start gap-1 text-[10px] opacity-70">
+                                <PinIcon className="w-2.5 h-2.5 mt-0.5 shrink-0" />
+                                <span>{p.comment}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Assistant message with inline live preview */}
+                    <button
+                      type="button"
+                      onClick={() => onSelectTurn(idx)}
+                      className="flex items-start gap-2 w-full text-left"
+                    >
+                      <div className="w-6 h-6 rounded-full bg-[#d97757] text-white flex items-center justify-center shrink-0 mt-0.5">
+                        <Bot className="w-3.5 h-3.5" />
+                      </div>
+                      <div className={`flex-1 min-w-0 rounded-2xl rounded-tl-sm border overflow-hidden transition-all ${
+                        isActive
+                          ? 'border-[#d97757] ring-2 ring-[#d97757]/40'
+                          : isLight
+                          ? 'border-[#e6e1d7] hover:border-[#d97757]/50'
+                          : 'border-[#3d3831] hover:border-[#d97757]/50'
+                      }`}>
+                        <div className={`h-28 border-b ${isLight ? 'border-[#e6e1d7]' : 'border-[#3d3831]'} bg-white`}>
+                          <iframe
+                            title={`turn-${idx}-preview`}
+                            srcDoc={turn.codeHtml}
+                            sandbox="allow-scripts"
+                            className="w-full h-full pointer-events-none"
+                            loading="lazy"
+                          />
+                        </div>
+                        <div className={`px-2.5 py-1.5 flex items-center justify-between text-[10px] ${
+                          isLight ? 'bg-white text-[#736e65]' : 'bg-[#2a2723] text-[#9e978a]'
+                        }`}>
+                          <span className="font-mono truncate">{turn.modelUsed}</span>
+                          {isActive && <span className="text-[#d97757] font-bold shrink-0 ml-1.5">Viewing</span>}
+                        </div>
+                      </div>
+                    </button>
                   </div>
-                )}
-              </div>
+                );
+              })
             )}
-
-            {/* Quick Action Pills */}
-            <div className="space-y-2 pt-1">
-              <span className={`text-[11px] font-semibold uppercase tracking-wider block ${
-                isLight ? 'text-[#827c70]' : 'text-[#8c8577]'
-              }`}>
-                Quick Enhancements
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {quickPills.map((pill) => (
-                  <button
-                    key={pill}
-                    type="button"
-                    onClick={() => onGenerate(pill)}
-                    disabled={isGenerating}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
-                      isLight
-                        ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
-                        : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#c4bdae] border-[#3d3831]'
-                    }`}
-                  >
-                    + {pill}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Pattern Library Quick Launcher Button */}
-            <div className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-              isLight
-                ? 'bg-gradient-to-r from-[#d97757]/10 to-transparent border-[#d97757]/30 hover:border-[#d97757]'
-                : 'bg-gradient-to-r from-[#d97757]/20 to-transparent border-[#d97757]/40 hover:border-[#d97757]'
-            }`}
-            onClick={() => setSidebarTab('patterns')}
-            >
-              <div className="flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4 text-[#d97757]" />
-                <div className="text-xs">
-                  <span className="font-bold block text-inherit">UI Pattern Library</span>
-                  <span className="text-[10px] text-[#736e65] dark:text-[#9e978a]">Drag & drop components into prompt</span>
-                </div>
-              </div>
-              <span className="text-xs text-[#d97757] font-bold">Browse →</span>
-            </div>
+            <div ref={feedEndRef} />
           </div>
         )}
       </div>
+
+      {sidebarTab === 'chat' && (
+        <div className="px-3 pt-2">
+          <div className="flex flex-wrap gap-1.5">
+            {quickPills.map((pill) => (
+              <button
+                key={pill}
+                type="button"
+                onClick={() => onGenerate(pill)}
+                disabled={isGenerating}
+                className={`px-2 py-1 rounded-lg text-[10px] font-medium border transition-colors disabled:opacity-50 ${
+                  isLight
+                    ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
+                    : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#c4bdae] border-[#3d3831]'
+                }`}
+              >
+                + {pill}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={onDecompose}
+              className="px-2 py-1 rounded-lg text-[10px] font-semibold text-[#d97757] hover:text-[#c66545] border border-[#d97757]/30 flex items-center gap-1"
+            >
+              <Layers className="w-2.5 h-2.5" /> Decompose Kit
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Input Prompt Form with Drag & Drop Listener */}
       <form
@@ -477,4 +453,3 @@ export const PromptSidebar: React.FC<PromptSidebarProps> = ({
     </aside>
   );
 };
-

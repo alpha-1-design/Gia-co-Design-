@@ -8,7 +8,9 @@ import {
   MousePointerClick,
   Check,
   Wand2,
-  Sparkles
+  Sparkles,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { PreviewDevice, PinComment } from '../types';
 
@@ -87,9 +89,31 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const editElRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origLeft: number; origTop: number } | null>(null);
   const isLight = theme === 'light';
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (stageRef.current) {
+        await stageRef.current.requestFullscreen();
+      }
+    } catch {
+      // Fullscreen API can reject (e.g. iOS Safari doesn't support it on
+      // arbitrary elements) - fail silently, the person just stays in the
+      // normal layout rather than seeing a broken error state.
+    }
+  };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isPinMode || !containerRef.current) return;
@@ -372,6 +396,17 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
 
         <div className="flex items-center gap-2">
           <button
+            onClick={toggleFullscreen}
+            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 ${
+              isLight
+                ? 'bg-white hover:bg-[#faf8f5] text-[#575249] border-[#e2ddd3]'
+                : 'bg-[#2a2723] hover:bg-[#332f2a] text-[#b3ac9f] border-[#3d3831]'
+            }`}
+            title={isFullscreen ? 'Exit fullscreen' : 'View fullscreen - the design fills the whole device screen, nothing else'}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+          <button
             onClick={() => setIframeKey((prev) => prev + 1)}
             className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 ${
               isLight
@@ -441,11 +476,14 @@ export const PreviewCanvas: React.FC<PreviewCanvasProps> = ({
       )}
 
       {/* Main Preview Stage Area */}
-      <div className={`flex-1 overflow-auto p-4 sm:p-8 flex items-center justify-center relative ${
-        isLight
-          ? 'bg-[radial-gradient(#d6cfc4_1px,transparent_1px)] [background-size:16px_16px]'
-          : 'bg-[radial-gradient(#38342e_1px,transparent_1px)] [background-size:16px_16px]'
-      }`}>
+      <div
+        ref={stageRef}
+        className={`flex-1 overflow-auto p-4 sm:p-8 flex items-center justify-center relative ${
+          isLight
+            ? 'bg-[#faf8f5] bg-[radial-gradient(#d6cfc4_1px,transparent_1px)] [background-size:16px_16px]'
+            : 'bg-[#181715] bg-[radial-gradient(#38342e_1px,transparent_1px)] [background-size:16px_16px]'
+        }`}
+      >
         {/* Device Shell */}
         <div
           ref={containerRef}
