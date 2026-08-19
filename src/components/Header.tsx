@@ -17,7 +17,8 @@ import {
   Wand2,
   MoreVertical,
   LibraryBig,
-  Terminal
+  Terminal,
+  Zap
 } from 'lucide-react';
 import { PreviewDevice, BYOKConfig, AIProvider } from '../types';
 import { fetchLiveModels } from '../lib/ai';
@@ -45,8 +46,10 @@ interface HeaderProps {
   onOpenVersionHistory: () => void;
   onOpenDesignTools: () => void;
   onOpenComponentLibrary: () => void;
+  onOpenSkillGallery: () => void;
   onToggleTerminal: () => void;
   showTerminal: boolean;
+  activeSkillPrompt?: string;
   activeDesignSystemName?: string | null;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
@@ -70,8 +73,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenVersionHistory,
   onOpenDesignTools,
   onOpenComponentLibrary,
+  onOpenSkillGallery,
   onToggleTerminal,
   showTerminal,
+  activeSkillPrompt,
   activeDesignSystemName,
   theme,
   onToggleTheme,
@@ -470,6 +475,7 @@ export const Header: React.FC<HeaderProps> = ({
                 { icon: History, label: 'Version History', onClick: onOpenVersionHistory },
                 { icon: Wand2, label: 'Design Tools', onClick: onOpenDesignTools },
                 { icon: LibraryBig, label: 'Component Library', onClick: onOpenComponentLibrary },
+                { icon: Zap, label: activeSkillPrompt ? 'Design Skills (Active)' : 'Design Skills', onClick: onOpenSkillGallery, active: Boolean(activeSkillPrompt) },
                 { icon: Layers, label: 'UI Kit (Decompose)', onClick: onOpenDecompose },
                 {
                   icon: Palette,

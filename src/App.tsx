@@ -54,6 +54,9 @@ import { AppRelease, fetchLatestRelease, getCurrentAppVersion, hasUpdate } from 
 import { Smartphone, Sparkles, Code2, Layers, Link2, FolderPlus, X, Map, Eye, Terminal } from 'lucide-react';
 import { InfiniteCanvas } from './components/InfiniteCanvas';
 import { TerminalPanel } from './components/TerminalPanel';
+import { SkillGallery } from './components/SkillGallery';
+import { getActiveSkill, importSkillFromCurrentUrl } from './lib/skills';
+import { DesignSkill } from './types';
 
 export default function App() {
   const [byok, setByok] = useState<BYOKConfig>(loadBYOKConfig);
@@ -94,6 +97,8 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<'preview' | 'prompt' | 'code'>('preview');
   const [viewMode, setViewMode] = useState<'canvas' | 'preview'>('canvas');
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showSkillGallery, setShowSkillGallery] = useState(false);
+  const [activeSkillPrompt, setActiveSkillPrompt] = useState<string | undefined>(() => getActiveSkill()?.systemPrompt);
 
   // Find active session, and within it, the active screen (a session can
   // now hold multiple named screens - a mobile app concept might have a
@@ -154,6 +159,16 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Check for skill import from URL hash
+  useEffect(() => {
+    if (!window.location.hash.startsWith('#skill=')) return;
+    importSkillFromCurrentUrl().then((skill) => {
+      if (skill) {
+        setActiveSkillPrompt(skill.systemPrompt);
+      }
+    });
   }, []);
 
   // Auto-update check: only inside the native Android app
@@ -276,12 +291,12 @@ export default function App() {
       const designSystemHtml = activeDesignSystem?.sourceHtml;
 
       if (variantCount > 1) {
-        const results = await generateVariants(promptText, currentHtml, byok, pinComments, variantCount, designSystemHtml, imageDataUrl, previewDevice);
+        const results = await generateVariants(promptText, currentHtml, byok, pinComments, variantCount, designSystemHtml, imageDataUrl, previewDevice, activeSkillPrompt);
         directions = results.map((r) => r.html);
         html = results[0].html;
         tokensEstimate = results.reduce((acc, r) => acc + r.tokensEstimate, 0);
       } else {
-        const result = await generateDesignCode(promptText, currentHtml, byok, pinComments, designSystemHtml, imageDataUrl, previewDevice);
+        const result = await generateDesignCode(promptText, currentHtml, byok, pinComments, designSystemHtml, imageDataUrl, previewDevice, activeSkillPrompt);
         html = result.html;
         tokensEstimate = result.tokensEstimate;
       }
@@ -678,8 +693,10 @@ export default function App() {
         onOpenVersionHistory={() => setShowVersionHistory(true)}
         onOpenDesignTools={() => setShowDesignTools(true)}
         onOpenComponentLibrary={() => setShowComponentLibrary(true)}
+        onOpenSkillGallery={() => setShowSkillGallery(true)}
         onToggleTerminal={() => setShowTerminal(!showTerminal)}
         showTerminal={showTerminal}
+        activeSkillPrompt={activeSkillPrompt}
         activeDesignSystemName={activeDesignSystem?.name ?? null}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -1077,6 +1094,14 @@ export default function App() {
           });
         }}
         theme={theme}
+      />
+      <SkillGallery
+        isOpen={showSkillGallery}
+        onClose={() => setShowSkillGallery(false)}
+        theme={theme}
+        onSkillActivated={(skill: DesignSkill | null) => {
+          setActiveSkillPrompt(skill?.systemPrompt);
+        }}
       />
     </div>
   );

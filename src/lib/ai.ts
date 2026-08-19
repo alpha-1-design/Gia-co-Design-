@@ -95,7 +95,7 @@ function buildViewportInstruction(device?: PreviewDevice): string {
 async function aiCall(
   byok: BYOKConfig,
   prompt: string,
-  opts?: { temperature?: number; images?: AICallRequest['images'] }
+  opts?: { temperature?: number; images?: AICallRequest['images']; skillPrompt?: string }
 ): Promise<{ text: string; tokensEstimate: number }> {
   const pInfo = getApiKeyForProvider(byok);
   const userApiKey = pInfo.key || byok.geminiApiKey;
@@ -106,13 +106,16 @@ async function aiCall(
 
   const model = resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel);
 
+  // Merge user system prompt with active skill prompt
+  const combinedSystemPrompt = [byok.systemPrompt, opts?.skillPrompt].filter(Boolean).join('\n\n');
+
   return callAI({
     provider: pInfo.provider,
     model,
     apiKey: userApiKey,
     baseUrl: pInfo.baseUrl,
     prompt,
-    systemPrompt: byok.systemPrompt,
+    systemPrompt: combinedSystemPrompt || undefined,
     images: opts?.images,
     temperature: opts?.temperature,
   });
@@ -161,7 +164,8 @@ export async function generateDesignCode(
   pinCommentsIndex?: { x: number; y: number; comment: string }[],
   designSystemHtml?: string,
   imageDataUrl?: string,
-  device?: PreviewDevice
+  device?: PreviewDevice,
+  skillPrompt?: string
 ): Promise<{ html: string; tokensEstimate: number }> {
   let fullPrompt = `User Request: ${prompt}${buildViewportInstruction(device)}`;
   if (designSystemHtml && designSystemHtml.trim()) {
@@ -184,7 +188,7 @@ export async function generateDesignCode(
     ? (() => { const { mimeType, base64 } = splitDataUrl(imageDataUrl); return [{ mimeType, base64 }]; })()
     : undefined;
 
-  const result = await aiCall(byok, fullPrompt, { images });
+  const result = await aiCall(byok, fullPrompt, { images, skillPrompt });
   return { html: extractHtml(result.text), tokensEstimate: result.tokensEstimate };
 }
 
@@ -200,7 +204,8 @@ export async function generateVariants(
   count: number,
   designSystemHtml?: string,
   imageDataUrl?: string,
-  device?: PreviewDevice
+  device?: PreviewDevice,
+  skillPrompt?: string
 ): Promise<{ html: string; tokensEstimate: number }[]> {
   const safeCount = Math.min(Math.max(Math.round(count), 1), 4);
   const tasks = Array.from({ length: safeCount }, (_, i) => {
@@ -208,7 +213,7 @@ export async function generateVariants(
       `Generate design direction variant ${i + 1} of ${safeCount} for the following request. ` +
       `Make this variant visually distinct from the others in layout, color palette, and mood, ` +
       `while staying equally polished and responsive.\n\nUser Request: ${prompt}`;
-    return generateDesignCode(variantPrompt, currentCode, byok, pinCommentsIndex, designSystemHtml, imageDataUrl, device);
+    return generateDesignCode(variantPrompt, currentCode, byok, pinCommentsIndex, designSystemHtml, imageDataUrl, device, skillPrompt);
   });
   return Promise.all(tasks);
 }

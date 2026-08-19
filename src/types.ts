@@ -295,6 +295,22 @@ export interface AccessibilityIssue {
   wcagCriteria: string;
 }
 
+export interface DesignSkill {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  systemPrompt: string;
+  referenceHtml?: string;
+  tags: string[];
+  author: string;
+  version: string;
+  downloads: number;
+  createdAt: number;
+  isBuiltin?: boolean;
+}
+
 export interface ImageAttachment {
   id: string;
   name: string;
