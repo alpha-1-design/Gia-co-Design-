@@ -228,6 +228,165 @@ export async function callAI(req: AICallRequest): Promise<AICallResponse> {
 }
 
 // ---------------------------------------------------------------------------
+// AI Streaming — token-by-token delivery via callback
+//
+// Works for OpenAI-compatible providers (stream: true).
+// Gemini uses streamGenerateContent.
+// Falls back to non-streaming if the provider doesn't support it.
+// ---------------------------------------------------------------------------
+
+export type StreamChunk = { token: string } | { done: true; fullText: string; tokensEstimate: number };
+
+export async function callAIStream(
+  req: AICallRequest,
+  onChunk: (chunk: StreamChunk) => void
+): Promise<void> {
+  const pDef = PROVIDER_CONFIG[req.provider];
+  if (!pDef) throw new Error(`Unknown provider: ${req.provider}`);
+
+  const model = req.model || pDef.defaultModel;
+  const key = cleanApiKey(req.apiKey);
+  const baseUrl = (req.baseUrl || pDef.baseUrl).replace(/\/+$/, '');
+
+  const userContent: any[] = [];
+  if (req.prompt) userContent.push({ type: 'text', text: req.prompt });
+  if (req.images) {
+    for (const img of req.images) {
+      if (img.url) userContent.push({ type: 'image_url', image_url: { url: img.url } });
+      else if (img.base64) userContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType || 'image/png'};base64,${img.base64}` } });
+    }
+  }
+
+  let fullText = '';
+
+  // Try streaming for OpenAI-compatible and Gemini
+  try {
+    if (req.provider === 'gemini') {
+      if (!key) throw new Error('Gemini API key not set.');
+      const parts: any[] = [];
+      for (const item of userContent) {
+        if (item.type === 'text') parts.push({ text: item.text });
+      }
+      const contents = [{ role: 'user', parts }];
+      const res = await fetch(
+        `${baseUrl}/models/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents }) }
+      );
+      if (!res.ok) throw new Error(`Gemini ${res.status}`);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+          try {
+            const data = JSON.parse(jsonStr);
+            const token = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            if (token) { fullText += token; onChunk({ token }); }
+          } catch {}
+        }
+      }
+    } else if (req.provider === 'anthropic') {
+      if (!key) throw new Error('Anthropic API key not set.');
+      const content = userContent.map((item) => {
+        if (item.type === 'text') return { type: 'text', text: item.text };
+        if (item.type === 'image_url') {
+          const url = item.image_url.url;
+          if (url.startsWith('data:')) {
+            const [header, b64] = url.split(',');
+            const mimeMatch = header.match(/data:([^;]+)/);
+            return { type: 'image', source: { type: 'base64', media_type: mimeMatch?.[1] || 'image/png', data: b64 } };
+          }
+        }
+        return null;
+      }).filter(Boolean);
+      const res = await fetch(`${baseUrl}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: 8192, stream: true, system: req.systemPrompt || '', messages: [{ role: 'user', content }] }),
+      });
+      if (!res.ok) throw new Error(`Anthropic ${res.status}`);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+          try {
+            const data = JSON.parse(jsonStr);
+            if (data.type === 'content_block_delta' && data.delta?.text) {
+              fullText += data.delta.text;
+              onChunk({ token: data.delta.text });
+            }
+          } catch {}
+        }
+      }
+    } else {
+      // OpenAI-compatible streaming
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (key && key !== 'ollama') headers['Authorization'] = `Bearer ${key}`;
+      if (req.provider === 'openrouter') {
+        headers['HTTP-Referer'] = req.origin || window.location.origin;
+        headers['X-Title'] = 'Gia-co-Design';
+      }
+      const messages: any[] = [];
+      if (req.systemPrompt) messages.push({ role: 'system', content: req.systemPrompt });
+      messages.push({ role: 'user', content: userContent });
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ model, messages, temperature: req.temperature ?? 0.7, stream: true }),
+      });
+      if (!res.ok) throw new Error(`${req.provider} ${res.status}`);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No response body');
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr || jsonStr === '[DONE]') continue;
+          try {
+            const data = JSON.parse(jsonStr);
+            const token = data.choices?.[0]?.delta?.content || '';
+            if (token) { fullText += token; onChunk({ token }); }
+          } catch {}
+        }
+      }
+    }
+  } catch {
+    // Streaming failed — fall back to non-streaming
+    const result = await callAI(req);
+    fullText = result.text;
+    onChunk({ token: result.text });
+  }
+
+  const tokensEstimate = Math.round((req.prompt?.length || 0) / 4 + fullText.length / 4);
+  onChunk({ done: true, fullText, tokensEstimate });
+}
+
+// ---------------------------------------------------------------------------
 // Model fetching — always direct from browser
 // ---------------------------------------------------------------------------
 

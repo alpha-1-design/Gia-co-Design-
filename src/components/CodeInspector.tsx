@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileCode2, Copy, Check, X, File, Edit3 } from 'lucide-react';
+import { FileCode2, Copy, Check, X, File, Edit3, FileJson } from 'lucide-react';
 import { UIKitDecomposition, UIKitFile } from '../types';
 
 interface CodeInspectorProps {
@@ -8,6 +8,8 @@ interface CodeInspectorProps {
   codeHtml: string;
   uiKit?: UIKitDecomposition;
   onUpdateCode: (newCode: string) => void;
+  /** Separate CSS/JS from structured generation */
+  structuredCode?: { html: string; css: string; js: string } | null;
   theme?: 'light' | 'dark';
 }
 
@@ -17,6 +19,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
   codeHtml,
   uiKit,
   onUpdateCode,
+  structuredCode,
   theme = 'light',
 }) => {
   const [activeTab, setActiveTab] = useState<string>('index.html');
@@ -27,13 +30,24 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
 
   const isLight = theme === 'light';
 
-  const currentFile: UIKitFile = uiKit?.files.find((f) => f.path === activeTab) || {
-    path: 'index.html',
-    content: codeHtml,
-    language: 'html',
-  };
+  // Build file list: structured code tabs + UI kit files
+  const fileTabs: Array<{ path: string; content: string; icon: React.ReactNode }> = [
+    { path: 'index.html', content: structuredCode?.html || codeHtml, icon: <File className="w-3.5 h-3.5" /> },
+  ];
+  if (structuredCode?.css) {
+    fileTabs.push({ path: 'styles.css', content: structuredCode.css, icon: <FileCode2 className="w-3.5 h-3.5" /> });
+  }
+  if (structuredCode?.js) {
+    fileTabs.push({ path: 'app.js', content: structuredCode.js, icon: <FileJson className="w-3.5 h-3.5" /> });
+  }
+  if (uiKit) {
+    for (const f of uiKit.files.filter((f) => f.path !== 'index.html')) {
+      fileTabs.push({ path: f.path, content: f.content, icon: <File className="w-3.5 h-3.5" /> });
+    }
+  }
 
-  const displayContent = activeTab === 'index.html' && !uiKit ? codeHtml : currentFile.content;
+  const activeFile = fileTabs.find((f) => f.path === activeTab) || fileTabs[0];
+  const displayContent = activeFile?.content || codeHtml;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(displayContent);
@@ -42,8 +56,18 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
   };
 
   const handleApplyEdits = () => {
-    if (activeTab === 'index.html') {
-      onUpdateCode(editingContent);
+    // For any tab, reassemble the full document
+    const html = activeTab === 'index.html' ? editingContent : (structuredCode?.html || codeHtml);
+    const css = activeTab === 'styles.css' ? editingContent : (structuredCode?.css || '');
+    const js = activeTab === 'app.js' ? editingContent : (structuredCode?.js || '');
+    // Assemble and pass up
+    if (html.includes('<!DOCTYPE') || html.includes('<html')) {
+      let doc = html;
+      if (css) doc = doc.replace('</head>', `  <style>\n${css}\n  </style>\n</head>`);
+      if (js) doc = doc.replace('</body>', `<script>\n${js}\n<\/script>\n</body>`);
+      onUpdateCode(doc);
+    } else {
+      onUpdateCode(html);
     }
   };
 
@@ -84,44 +108,25 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
       <div className={`px-2 py-1.5 border-b flex items-center gap-1 overflow-x-auto text-xs ${
         isLight ? 'bg-[#f7f4ec] border-[#e6e1d7]' : 'bg-[#181715] border-[#38342e]'
       }`}>
-        <button
-          onClick={() => {
-            setActiveTab('index.html');
-            setEditingContent(codeHtml);
-          }}
-          className={`px-3 py-1 rounded-md flex items-center gap-1.5 font-medium whitespace-nowrap transition-colors ${
-            activeTab === 'index.html'
-              ? 'bg-[#d97757] text-white shadow-sm'
-              : isLight
-              ? 'text-[#736e65] hover:bg-white'
-              : 'text-[#9e978a] hover:bg-[#2a2723]'
-          }`}
-        >
-          <File className="w-3.5 h-3.5" />
-          <span>index.html</span>
-        </button>
-
-        {uiKit?.files
-          .filter((f) => f.path !== 'index.html')
-          .map((f) => (
-            <button
-              key={f.path}
-              onClick={() => {
-                setActiveTab(f.path);
-                setEditingContent(f.content);
-              }}
-              className={`px-3 py-1 rounded-md flex items-center gap-1.5 font-medium whitespace-nowrap transition-colors ${
-                activeTab === f.path
-                  ? 'bg-[#d97757] text-white shadow-sm'
-                  : isLight
-                  ? 'text-[#736e65] hover:bg-white'
-                  : 'text-[#9e978a] hover:bg-[#2a2723]'
-              }`}
-            >
-              <File className="w-3.5 h-3.5" />
-              <span>{f.path}</span>
-            </button>
-          ))}
+        {fileTabs.map((tab) => (
+          <button
+            key={tab.path}
+            onClick={() => {
+              setActiveTab(tab.path);
+              setEditingContent(tab.content);
+            }}
+            className={`px-3 py-1 rounded-md flex items-center gap-1.5 font-medium whitespace-nowrap transition-colors ${
+              activeTab === tab.path
+                ? 'bg-[#d97757] text-white shadow-sm'
+                : isLight
+                ? 'text-[#736e65] hover:bg-white'
+                : 'text-[#9e978a] hover:bg-[#2a2723]'
+            }`}
+          >
+            {tab.icon}
+            <span>{tab.path}</span>
+          </button>
+        ))}
       </div>
 
       {/* Editor Content Box */}
@@ -141,7 +146,7 @@ export const CodeInspector: React.FC<CodeInspectorProps> = ({
       </div>
 
       {/* Footer Edits apply button */}
-      {activeTab === 'index.html' && (
+      {(activeTab === 'index.html' || activeTab === 'styles.css' || activeTab === 'app.js') && (
         <div className={`p-3 border-t flex items-center justify-between ${
           isLight ? 'bg-[#ebe6dc] border-[#e6e1d7]' : 'bg-[#1b1a17] border-[#38342e]'
         }`}>

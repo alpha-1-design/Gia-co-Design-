@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { SettingsModal } from './components/SettingsModal';
-import { PromptSidebar } from './components/PromptSidebar';
+import { DesignAgent } from './components/DesignAgent';
 import { PreviewCanvas } from './components/PreviewCanvas';
 import { ScreensRail } from './components/ScreensRail';
 import { AddScreenModal } from './components/AddScreenModal';
@@ -47,7 +47,7 @@ import {
   loadComponentLibrary,
   saveComponentLibrary
 } from './lib/storage';
-import { generateDesignCode, generateVariants, critiqueDesign } from './lib/ai';
+import { generateDesignCode, generateVariants, critiqueDesign, assembleFullDocument } from './lib/ai';
 import { getProviderDefinition } from './lib/providers';
 import { encodeShareLink, decodeShareHash, clearShareHash } from './lib/share';
 import { AppRelease, fetchLatestRelease, getCurrentAppVersion, hasUpdate } from './lib/updater';
@@ -98,6 +98,7 @@ export default function App() {
   const [variantCount, setVariantCount] = useState(1);
   const [mobileTab, setMobileTab] = useState<'preview' | 'prompt' | 'code'>('preview');
   const [viewMode, setViewMode] = useState<'canvas' | 'preview'>('canvas');
+  const [structuredCode, setStructuredCode] = useState<{ html: string; css: string; js: string } | null>(null);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showSkillGallery, setShowSkillGallery] = useState(false);
   const [activeSkillPrompt, setActiveSkillPrompt] = useState<string | undefined>(() => getActiveSkill()?.systemPrompt);
@@ -407,6 +408,17 @@ export default function App() {
       ...sc,
       turns: sc.turns.map((t, idx) => (idx === sc.activeTurnIndex ? { ...t, pins: updatedPins } : t)),
     }));
+  };
+
+  const handleStructuredCode = (code: { html: string; css: string; js: string }) => {
+    setStructuredCode(code);
+    // If we have separate CSS/JS, assemble the full document for the preview
+    if (code.css || code.js) {
+      const fullDoc = assembleFullDocument(code.html, code.css || '', code.js || '');
+      handleUpdateCode(fullDoc);
+    } else {
+      handleUpdateCode(code.html);
+    }
   };
 
   const handleUpdateCode = (newCode: string) => {
@@ -828,7 +840,7 @@ export default function App() {
         <div className="flex-1 flex overflow-hidden relative">
         {/* Desktop / Large Screen Split View */}
         <div className="hidden lg:flex w-full h-full">
-          <PromptSidebar
+          <DesignAgent
             turns={activeScreen.turns}
             activeTurnIndex={activeScreen.activeTurnIndex}
             onSelectTurn={handleSelectTurn}
@@ -838,6 +850,11 @@ export default function App() {
             tokenCount={totalTokens}
             variantCount={variantCount}
             onVariantCountChange={setVariantCount}
+            byok={byok}
+            designSystemHtml={activeDesignSystem?.sourceHtml}
+            previewDevice={previewDevice}
+            skillPrompt={activeSkillPrompt}
+            onStructuredCode={handleStructuredCode}
             theme={theme}
           />
           <PreviewCanvas
@@ -862,6 +879,7 @@ export default function App() {
               codeHtml={activeTurn.codeHtml}
               uiKit={activeSession.uiKit}
               onUpdateCode={handleUpdateCode}
+              structuredCode={structuredCode}
               theme={theme}
             />
           )}
@@ -893,7 +911,7 @@ export default function App() {
               />
             )}
             {mobileTab === 'prompt' && (
-              <PromptSidebar
+              <DesignAgent
                 turns={activeScreen.turns}
                 activeTurnIndex={activeScreen.activeTurnIndex}
                 onSelectTurn={handleSelectTurn}
@@ -903,6 +921,11 @@ export default function App() {
                 tokenCount={totalTokens}
                 variantCount={variantCount}
                 onVariantCountChange={setVariantCount}
+                byok={byok}
+                designSystemHtml={activeDesignSystem?.sourceHtml}
+                previewDevice={previewDevice}
+                skillPrompt={activeSkillPrompt}
+                onStructuredCode={handleStructuredCode}
                 theme={theme}
               />
             )}
@@ -913,6 +936,7 @@ export default function App() {
                 codeHtml={activeTurn.codeHtml}
                 uiKit={activeSession.uiKit}
                 onUpdateCode={handleUpdateCode}
+                structuredCode={structuredCode}
                 theme={theme}
               />
             )}

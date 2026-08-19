@@ -335,3 +335,26 @@ export interface DesignCritique {
 }
 
 export type PreviewDevice = 'mobile' | 'tablet' | 'desktop';
+
+/**
+ * A single message in the design agent conversation.
+ * The assistant messages carry structured code output (HTML, CSS, JS)
+ * alongside the explanation text so the UI can show them separately.
+ */
+export interface DesignMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  /** Plain text content — the user's prompt or the AI's explanation */
+  text: string;
+  /** Structured code output from the assistant */
+  code?: {
+    html: string;
+    css?: string;
+    js?: string;
+  };
+  timestamp: number;
+  modelUsed?: string;
+  tokensEstimate?: number;
+  /** Whether this message is still streaming */
+  isStreaming?: boolean;
+}

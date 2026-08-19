@@ -26,7 +26,8 @@ import {
   getProviderRuntime,
   cacheModels,
 } from './providers';
-import { callAI, fetchLiveModels as apiFetchLiveModels, AICallRequest } from './api';
+import { callAI, callAIStream, fetchLiveModels as apiFetchLiveModels, AICallRequest, StreamChunk } from './api';
+import { DesignMessage } from '../types';
 
 export function resolveModelName(provider: string, selectedModel: string | undefined, defaultModel: string): string {
   const model = (selectedModel || '').trim();
@@ -95,7 +96,7 @@ function buildViewportInstruction(device?: PreviewDevice): string {
 async function aiCall(
   byok: BYOKConfig,
   prompt: string,
-  opts?: { temperature?: number; images?: AICallRequest['images']; skillPrompt?: string }
+  opts?: { temperature?: number; images?: AICallRequest['images']; skillPrompt?: string; conversationHistory?: DesignMessage[] }
 ): Promise<{ text: string; tokensEstimate: number }> {
   const pInfo = getApiKeyForProvider(byok);
   const userApiKey = pInfo.key || byok.geminiApiKey;
@@ -109,16 +110,69 @@ async function aiCall(
   // Merge user system prompt with active skill prompt
   const combinedSystemPrompt = [byok.systemPrompt, opts?.skillPrompt].filter(Boolean).join('\n\n');
 
+  // Build prompt with conversation history for context
+  let fullPrompt = prompt;
+  if (opts?.conversationHistory && opts.conversationHistory.length > 0) {
+    const historyContext = opts.conversationHistory
+      .filter((m) => m.text.trim())
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+      .join('\n');
+    fullPrompt = `Previous conversation:\n${historyContext}\n\nCurrent request: ${prompt}`;
+  }
+
   return callAI({
     provider: pInfo.provider,
     model,
     apiKey: userApiKey,
     baseUrl: pInfo.baseUrl,
-    prompt,
+    prompt: fullPrompt,
     systemPrompt: combinedSystemPrompt || undefined,
     images: opts?.images,
     temperature: opts?.temperature,
   });
+}
+
+/**
+ * Streaming AI call — delivers tokens one-by-one via callback.
+ */
+export async function aiCallStream(
+  byok: BYOKConfig,
+  prompt: string,
+  onChunk: (chunk: StreamChunk) => void,
+  opts?: { temperature?: number; images?: AICallRequest['images']; skillPrompt?: string; conversationHistory?: DesignMessage[] }
+): Promise<void> {
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (!userApiKey && pInfo.provider !== 'ollama') {
+    throw new Error(`API Key missing for provider "${byok.provider.toUpperCase()}". Please open Settings and enter your API Key.`);
+  }
+
+  const model = resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel);
+  const combinedSystemPrompt = [byok.systemPrompt, opts?.skillPrompt].filter(Boolean).join('\n\n');
+
+  let fullPrompt = prompt;
+  if (opts?.conversationHistory && opts.conversationHistory.length > 0) {
+    const historyContext = opts.conversationHistory
+      .filter((m) => m.text.trim())
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`)
+      .join('\n');
+    fullPrompt = `Previous conversation:\n${historyContext}\n\nCurrent request: ${prompt}`;
+  }
+
+  return callAIStream(
+    {
+      provider: pInfo.provider,
+      model,
+      apiKey: userApiKey,
+      baseUrl: pInfo.baseUrl,
+      prompt: fullPrompt,
+      systemPrompt: combinedSystemPrompt || undefined,
+      images: opts?.images,
+      temperature: opts?.temperature,
+    },
+    onChunk
+  );
 }
 
 function splitDataUrl(dataUrl: string): { mimeType: string; base64: string } {
@@ -165,7 +219,8 @@ export async function generateDesignCode(
   designSystemHtml?: string,
   imageDataUrl?: string,
   device?: PreviewDevice,
-  skillPrompt?: string
+  skillPrompt?: string,
+  conversationHistory?: DesignMessage[]
 ): Promise<{ html: string; tokensEstimate: number }> {
   let fullPrompt = `User Request: ${prompt}${buildViewportInstruction(device)}`;
   if (designSystemHtml && designSystemHtml.trim()) {
@@ -188,8 +243,103 @@ export async function generateDesignCode(
     ? (() => { const { mimeType, base64 } = splitDataUrl(imageDataUrl); return [{ mimeType, base64 }]; })()
     : undefined;
 
-  const result = await aiCall(byok, fullPrompt, { images, skillPrompt });
+  const result = await aiCall(byok, fullPrompt, { images, skillPrompt, conversationHistory });
   return { html: extractHtml(result.text), tokensEstimate: result.tokensEstimate };
+}
+
+// ---------------------------------------------------------------------------
+// Generate structured design — HTML + CSS + JS as separate files
+// ---------------------------------------------------------------------------
+
+function extractStructuredCode(rawText: string): { html: string; css: string; js: string; explanation: string } {
+  // Try to extract separate code blocks
+  const htmlMatch = rawText.match(/```html\s*([\s\S]*?)\s*```/i);
+  const cssMatch = rawText.match(/```css\s*([\s\S]*?)\s*```/i);
+  const jsMatch = rawText.match(/```(?:javascript|js)\s*([\s\S]*?)\s*```/i);
+
+  let html = htmlMatch ? htmlMatch[1].trim() : '';
+  let css = cssMatch ? cssMatch[1].trim() : '';
+  let js = jsMatch ? jsMatch[1].trim() : '';
+
+  // Explanation = everything that's NOT a code block
+  let explanation = rawText
+    .replace(/```html[\s\S]*?```/gi, '')
+    .replace(/```css[\s\S]*?```/gi, '')
+    .replace(/```(?:javascript|js)[\s\S]*?```/gi, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .trim();
+
+  // If no separate blocks found, fall back to single HTML block
+  if (!html && !css && !js) {
+    html = extractHtml(rawText);
+    explanation = '';
+  } else if (html && !css && !js) {
+    // Only HTML found — extract it
+    html = extractHtml(html || rawText);
+  } else if (html) {
+    // Assemble full document from parts
+    if (!html.includes('<!DOCTYPE')) {
+      html = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <script src="https://cdn.tailwindcss.com"><\/script>\n${css ? `  <style>\n${css}\n  </style>\n` : ''}</head>\n<body>\n${html}\n${js ? `<script>\n${js}\n<\/script>` : ''}\n</body>\n</html>`;
+    } else if (css) {
+      // Insert CSS into existing head
+      html = html.replace('</head>', `  <style>\n${css}\n  </style>\n</head>`);
+    }
+  }
+
+  return { html: html || extractHtml(rawText), css, js, explanation };
+}
+
+/**
+ * Parse structured code from a raw AI response.
+ * Extracts separate HTML, CSS, JS blocks plus explanation text.
+ */
+export function parseStructuredCode(rawText: string): { code: { html: string; css: string; js: string }; explanation: string } {
+  const htmlMatch = rawText.match(/```html\s*([\s\S]*?)\s*```/i);
+  const cssMatch = rawText.match(/```css\s*([\s\S]*?)\s*```/i);
+  const jsMatch = rawText.match(/```(?:javascript|js)\s*([\s\S]*?)\s*```/i);
+
+  let html = htmlMatch ? htmlMatch[1].trim() : '';
+  let css = cssMatch ? cssMatch[1].trim() : '';
+  let js = jsMatch ? jsMatch[1].trim() : '';
+
+  let explanation = rawText
+    .replace(/```html[\s\S]*?```/gi, '')
+    .replace(/```css[\s\S]*?```/gi, '')
+    .replace(/```(?:javascript|js)[\s\S]*?```/gi, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .trim();
+
+  if (!html && !css && !js) {
+    html = extractHtml(rawText);
+    explanation = '';
+  } else if (html) {
+    html = extractHtml(html || rawText);
+  }
+
+  return { code: { html, css, js }, explanation };
+}
+
+/**
+ * Build a full HTML document from separate CSS + JS parts,
+ * used when the user edits CSS or JS in the CodeInspector.
+ */
+export function assembleFullDocument(htmlBody: string, css: string, js: string): string {
+  if (htmlBody.includes('<!DOCTYPE') || htmlBody.includes('<html')) {
+    let doc = htmlBody;
+    if (css) {
+      if (doc.includes('</head>')) {
+        doc = doc.replace('</head>', `  <style>\n${css}\n  </style>\n</head>`);
+      }
+    }
+    if (js) {
+      if (doc.includes('</body>')) {
+        doc = doc.replace('</body>', `<script>\n${js}\n<\/script>\n</body>`);
+      }
+    }
+    return doc;
+  }
+  // Bare HTML body — wrap in full document
+  return `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <script src="https://cdn.tailwindcss.com"><\/script>\n${css ? `  <style>\n${css}\n  </style>\n` : ''}</head>\n<body>\n${htmlBody}\n${js ? `<script>\n${js}\n<\/script>` : ''}\n</body>\n</html>`;
 }
 
 // ---------------------------------------------------------------------------
