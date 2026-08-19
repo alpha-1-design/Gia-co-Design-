@@ -16,7 +16,8 @@ import {
   History,
   Wand2,
   MoreVertical,
-  LibraryBig
+  LibraryBig,
+  Terminal
 } from 'lucide-react';
 import { PreviewDevice, BYOKConfig, AIProvider } from '../types';
 import { fetchLiveModels } from '../lib/ai';
@@ -44,6 +45,8 @@ interface HeaderProps {
   onOpenVersionHistory: () => void;
   onOpenDesignTools: () => void;
   onOpenComponentLibrary: () => void;
+  onToggleTerminal: () => void;
+  showTerminal: boolean;
   activeDesignSystemName?: string | null;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
@@ -67,6 +70,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenVersionHistory,
   onOpenDesignTools,
   onOpenComponentLibrary,
+  onToggleTerminal,
+  showTerminal,
   activeDesignSystemName,
   theme,
   onToggleTheme,
@@ -472,6 +477,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick: onOpenDesignSystems,
                   active: Boolean(activeDesignSystemName),
                 },
+                { icon: Terminal, label: showTerminal ? 'Hide Terminal' : 'Terminal', onClick: onToggleTerminal, active: showTerminal },
                 { icon: Link2, label: 'Share', onClick: onOpenShare },
               ].map(({ icon: Icon, label, onClick, active }) => (
                 <button

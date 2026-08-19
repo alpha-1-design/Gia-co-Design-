@@ -135,13 +135,22 @@ export interface SavedComponent {
   createdAt: number;
 }
 
+export interface CanvasPosition {
+  x: number;
+  y: number;
+}
+
 export interface DesignScreen {
   id: string;
   name: string;
-  kind: 'website' | 'mobile' | 'dashboard' | 'landing' | 'component' | 'other';
+  kind: 'website' | 'mobile' | 'dashboard' | 'landing' | 'component' | 'chart' | 'motion' | 'presentation' | 'other';
   turns: DesignTurn[];
   activeTurnIndex: number;
   createdAt: number;
+  /** Position on the infinite canvas — null means auto-layout */
+  canvasPosition?: CanvasPosition;
+  /** Connection targets: screen IDs this screen links to (prototype flow) */
+  connections?: string[];
 }
 
 export interface DesignSession {

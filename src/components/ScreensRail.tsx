@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, X, Pencil, Smartphone, Globe, LayoutDashboard, PanelTop, Component, MoreHorizontal, Sparkles } from 'lucide-react';
+import { Plus, X, Pencil, Smartphone, Globe, LayoutDashboard, PanelTop, Component, MoreHorizontal, Sparkles, BarChart3, Presentation, Layers } from 'lucide-react';
 import { DesignScreen } from '../types';
 
 interface ScreensRailProps {
@@ -19,6 +19,9 @@ const KIND_ICON: Record<DesignScreen['kind'], React.ElementType> = {
   dashboard: LayoutDashboard,
   landing: PanelTop,
   component: Component,
+  chart: BarChart3,
+  motion: Layers,
+  presentation: Presentation,
   other: PanelTop,
 };
 

@@ -1,4 +1,5 @@
 import { BYOKConfig, DesignSession, DesignScreen, DesignSystem, SavedComponent } from '../types';
+import { saveProject, loadProject } from './api';
 
 const BYOK_KEY = 'open_codesign_byok_config';
 const SESSIONS_KEY = 'open_codesign_sessions';
@@ -210,6 +211,12 @@ export function saveSessions(sessions: DesignSession[]): void {
     localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
   } catch (e) {
     console.error('Failed to save sessions', e);
+  }
+  // Also persist to local backend (survives localStorage limits)
+  try {
+    saveProject('all-sessions', { sessions }).catch(() => {});
+  } catch {
+    // non-fatal — backend may not be running
   }
 }
 

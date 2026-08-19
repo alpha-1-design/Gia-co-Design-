@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { X, Palette, Upload, Plus, Trash2, Check, FileCode2 } from 'lucide-react';
+import { X, Palette, Upload, Plus, Trash2, Check, FileCode2, Download } from 'lucide-react';
 import { DesignSystem } from '../types';
+import { generateDesignMd } from '../lib/designMd';
 
 interface DesignSystemModalProps {
   isOpen: boolean;
@@ -128,6 +129,25 @@ export const DesignSystemModal: React.FC<DesignSystemModalProps> = ({
                     <span className={`text-[10px] shrink-0 ${isLight ? 'text-[#9e978a]' : 'text-[#736e65]'}`}>
                       {Math.round(ds.sourceHtml.length / 100) / 10}kb
                     </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const output = generateDesignMd(ds.sourceHtml, ds.name);
+                      const blob = new Blob([output.markdown], { type: 'text/markdown' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = output.filename;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(url);
+                    }}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-[#d97757] transition-colors"
+                    title="Export as DESIGN.md (agent-readable)"
+                  >
+                    <Download className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"

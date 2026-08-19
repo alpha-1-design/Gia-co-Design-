@@ -51,7 +51,9 @@ import { generateDesignCode, generateVariants, critiqueDesign } from './lib/ai';
 import { getProviderDefinition } from './lib/providers';
 import { encodeShareLink, decodeShareHash, clearShareHash } from './lib/share';
 import { AppRelease, fetchLatestRelease, getCurrentAppVersion, hasUpdate } from './lib/updater';
-import { Smartphone, Sparkles, Code2, Layers, Link2, FolderPlus, X } from 'lucide-react';
+import { Smartphone, Sparkles, Code2, Layers, Link2, FolderPlus, X, Map, Eye, Terminal } from 'lucide-react';
+import { InfiniteCanvas } from './components/InfiniteCanvas';
+import { TerminalPanel } from './components/TerminalPanel';
 
 export default function App() {
   const [byok, setByok] = useState<BYOKConfig>(loadBYOKConfig);
@@ -90,6 +92,8 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [variantCount, setVariantCount] = useState(1);
   const [mobileTab, setMobileTab] = useState<'preview' | 'prompt' | 'code'>('preview');
+  const [viewMode, setViewMode] = useState<'canvas' | 'preview'>('canvas');
+  const [showTerminal, setShowTerminal] = useState(false);
 
   // Find active session, and within it, the active screen (a session can
   // now hold multiple named screens - a mobile app concept might have a
@@ -674,12 +678,52 @@ export default function App() {
         onOpenVersionHistory={() => setShowVersionHistory(true)}
         onOpenDesignTools={() => setShowDesignTools(true)}
         onOpenComponentLibrary={() => setShowComponentLibrary(true)}
+        onToggleTerminal={() => setShowTerminal(!showTerminal)}
+        showTerminal={showTerminal}
         activeDesignSystemName={activeDesignSystem?.name ?? null}
         theme={theme}
         onToggleTheme={toggleTheme}
         onProviderChange={handleProviderChange}
         onModelChange={handleModelChange}
       />
+
+      {/* View Mode Toggle (floating, bottom-center) */}
+      {!sharedSession && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+          <div className={`flex items-center gap-1 px-2 py-1.5 rounded-xl border shadow-xl ${
+            isLight
+              ? 'bg-white/95 border-[#e2ddd3] backdrop-blur-md'
+              : 'bg-[#22201d]/95 border-[#38342e] backdrop-blur-md'
+          }`}>
+            <button
+              onClick={() => setViewMode('canvas')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === 'canvas'
+                  ? 'bg-[#d97757] text-white shadow-md'
+                  : isLight
+                  ? 'text-[#736e65] hover:text-[#22201d]'
+                  : 'text-[#9e978a] hover:text-[#f4f0ea]'
+              }`}
+            >
+              <Map className="w-3.5 h-3.5" />
+              Canvas
+            </button>
+            <button
+              onClick={() => setViewMode('preview')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === 'preview'
+                  ? 'bg-[#d97757] text-white shadow-md'
+                  : isLight
+                  ? 'text-[#736e65] hover:text-[#22201d]'
+                  : 'text-[#9e978a] hover:text-[#f4f0ea]'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Preview
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Workspace Stage */}
       {sharedSession && sharedTurn ? (
@@ -735,6 +779,21 @@ export default function App() {
         </div>
       ) : (
       <div className="flex-1 flex flex-col overflow-hidden relative">
+        {viewMode === 'canvas' ? (
+          /* Infinite Canvas View */
+          <InfiniteCanvas
+            session={activeSession}
+            activeScreenId={activeSession.activeScreenId}
+            onSelectScreen={(id) => { handleSelectScreen(id); setViewMode('preview'); }}
+            onAddScreen={() => setShowAddScreenPrompt(true)}
+            onPlanApp={() => setShowPlanApp(true)}
+            onRenameScreen={handleRenameScreen}
+            onDeleteScreen={handleDeleteScreen}
+            theme={theme}
+          />
+        ) : (
+        /* Preview Mode */
+        <>
         <ScreensRail
           screens={activeSession.screens}
           activeScreenId={activeSession.activeScreenId}
@@ -785,6 +844,11 @@ export default function App() {
               theme={theme}
             />
           )}
+          <TerminalPanel
+            isOpen={showTerminal}
+            onClose={() => setShowTerminal(false)}
+            theme={theme}
+          />
         </div>
 
         {/* Mobile / Android Responsive View with Bottom Tabs */}
@@ -864,9 +928,20 @@ export default function App() {
               <Code2 className="w-4 h-4" />
               <span>Code Inspector</span>
             </button>
+            <button
+              onClick={() => setShowTerminal(!showTerminal)}
+              className={`flex flex-col items-center gap-1 text-[11px] font-medium transition-colors ${
+                showTerminal ? 'text-[#d97757] font-bold' : isLight ? 'text-[#736e65]' : 'text-[#9e978a]'
+              }`}
+            >
+              <Terminal className="w-4 h-4" />
+              <span>Terminal</span>
+            </button>
           </nav>
         </div>
         </div>
+        </>
+        )}
       </div>
       )}
 
@@ -963,10 +1038,12 @@ export default function App() {
         onCreateBlank={(name, kind) => {
           handleAddScreen(name, kind);
           setShowAddScreenPrompt(false);
+          setViewMode('preview');
         }}
         onCreateGenerated={(name, kind, html) => {
           handleAddScreen(name, kind, html);
           setShowAddScreenPrompt(false);
+          setViewMode('preview');
         }}
         byok={byok}
         previewDevice={previewDevice}

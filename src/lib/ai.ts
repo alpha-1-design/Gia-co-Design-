@@ -1,28 +1,22 @@
 /**
- * CLIENT-SIDE BYOK ARCHITECTURE:
- * The user explicitly requested standalone app execution without a backend.
- * All API requests are made directly client-side using user-configured API keys.
+ * Gia-co-Design — AI Module (Backend-powered)
+ *
+ * All AI calls route through the local backend server at /api/ai/call.
+ * API keys stay server-side. No more duplicated provider-switching logic.
  */
 
-import { GoogleGenAI } from '@google/genai';
-import { 
-  BYOKConfig, 
-  UIKitDecomposition, 
-  UIKitFile, 
-  ParityCheck, 
-  DesignCritique, 
-  CritiqueFinding, 
+import {
+  BYOKConfig,
+  UIKitDecomposition,
+  UIKitFile,
+  ParityCheck,
+  DesignCritique,
+  CritiqueFinding,
   PreviewDevice,
   DesignToken,
   ExportPreset,
   AutoLayoutConfig,
-  ConstraintConfig,
-  ResponsiveBreakpoint,
-  ComponentVariant,
-  InteractiveHotspot,
-  AnimationPreset,
   AccessibilityReport,
-  AccessibilityIssue
 } from '../types';
 import { DEVICE_VIEWPORTS } from './deviceViewports';
 import {
@@ -32,6 +26,7 @@ import {
   getProviderRuntime,
   cacheModels,
 } from './providers';
+import { callAI, fetchLiveModels as apiFetchLiveModels, AICallRequest } from './api';
 
 export function resolveModelName(provider: string, selectedModel: string | undefined, defaultModel: string): string {
   const model = (selectedModel || '').trim();
@@ -41,84 +36,8 @@ export function resolveModelName(provider: string, selectedModel: string | undef
 export async function fetchLiveModels(byok: BYOKConfig): Promise<ProviderModel[]> {
   const runtime = getProviderRuntime(byok);
   const def = getProviderDefinition(byok.provider);
-
   try {
-    let models: ProviderModel[] = [];
-
-    if (def.modelsKind === 'gemini') {
-      if (!runtime.key) throw new Error('Gemini API Key missing. Please paste a valid Gemini API key from Google AI Studio in Settings.');
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(runtime.key)}`);
-      if (!res.ok) {
-        let errDetails = `Gemini API status ${res.status}`;
-        try {
-          const errData = await res.json();
-          if (errData?.error?.message) {
-            errDetails = `Gemini API (${res.status}): ${errData.error.message}`;
-          }
-        } catch {}
-        throw new Error(errDetails);
-      }
-      const data = await res.json();
-      if (Array.isArray(data?.models)) {
-        models = data.models
-          .filter((m: any) => m.name && (!m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')))
-          .map((m: any) => {
-            const cleanId = m.name.replace(/^models\//, '');
-            return {
-              value: cleanId,
-              label: m.displayName ? `${m.displayName} (${cleanId})` : cleanId,
-            };
-          });
-      }
-    } else if (def.modelsKind === 'anthropic') {
-      if (!runtime.key) throw new Error('Anthropic API Key missing. Please enter your Anthropic API Key in Settings.');
-      const res = await fetch(`https://api.anthropic.com/v1/models`, {
-        headers: {
-          'x-api-key': runtime.key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-      });
-      if (!res.ok) {
-        let errDetails = `Anthropic API status ${res.status}`;
-        try {
-          const errData = await res.json();
-          if (errData?.error?.message) errDetails = `Anthropic API (${res.status}): ${errData.error.message}`;
-        } catch {}
-        throw new Error(errDetails);
-      }
-      const data = await res.json();
-      if (Array.isArray(data?.data)) {
-        models = data.data.map((m: any) => ({ value: m.id, label: m.display_name || m.id }));
-      }
-    } else {
-      const baseUrl = runtime.baseUrl.replace(/\/+$/, '');
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (runtime.key && runtime.key !== 'ollama') {
-        headers['Authorization'] = `Bearer ${runtime.key}`;
-      }
-      if (byok.provider === 'openrouter') {
-        headers['HTTP-Referer'] = window.location.origin;
-        headers['X-Title'] = 'Gia-co-Design';
-      }
-      const res = await fetch(`${baseUrl}/models`, { headers });
-      if (!res.ok) {
-        let errDetails = `${byok.provider.toUpperCase()} API status ${res.status}`;
-        try {
-          const errData = await res.json();
-          if (errData?.error?.message) errDetails = `${byok.provider.toUpperCase()} (${res.status}): ${errData.error.message}`;
-          else if (errData?.message) errDetails = `${byok.provider.toUpperCase()} (${res.status}): ${errData.message}`;
-        } catch {}
-        throw new Error(errDetails);
-      }
-      const data = await res.json();
-      if (Array.isArray(data?.data)) {
-        models = data.data
-          .map((m: any) => ({ value: m.id || m.name, label: m.id || m.name }))
-          .slice(0, 100);
-      }
-    }
-
+    const models = await apiFetchLiveModels(byok.provider, runtime.key, runtime.baseUrl);
     if (models.length > 0) {
       cacheModels(byok, models);
     }
@@ -170,6 +89,109 @@ function buildViewportInstruction(device?: PreviewDevice): string {
   return baseConstraint + (deviceContext[device] || '');
 }
 
+/**
+ * Single AI call helper — all provider logic lives on the backend.
+ */
+async function aiCall(
+  byok: BYOKConfig,
+  prompt: string,
+  opts?: { temperature?: number; images?: AICallRequest['images'] }
+): Promise<{ text: string; tokensEstimate: number }> {
+  const pInfo = getApiKeyForProvider(byok);
+  const userApiKey = pInfo.key || byok.geminiApiKey;
+
+  if (!userApiKey && pInfo.provider !== 'ollama') {
+    throw new Error(`API Key missing for provider "${byok.provider.toUpperCase()}". Please open Settings and enter your API Key.`);
+  }
+
+  const model = resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel);
+
+  return callAI({
+    provider: pInfo.provider,
+    model,
+    apiKey: userApiKey,
+    baseUrl: pInfo.baseUrl,
+    prompt,
+    systemPrompt: byok.systemPrompt,
+    images: opts?.images,
+    temperature: opts?.temperature,
+  });
+}
+
+function splitDataUrl(dataUrl: string): { mimeType: string; base64: string } {
+  const commaIdx = dataUrl.indexOf(',');
+  const header = commaIdx >= 0 ? dataUrl.slice(0, commaIdx) : '';
+  const mimeMatch = header.match(/^data:([^;]+)/);
+  return {
+    mimeType: mimeMatch ? mimeMatch[1] : 'image/png',
+    base64: commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl,
+  };
+}
+
+function extractHtml(rawText: string): string {
+  const htmlMatch = rawText.match(/```html\s*([\s\S]*?)\s*```/i);
+  let cleanHtml = htmlMatch ? htmlMatch[1].trim() : rawText.trim();
+
+  if (!cleanHtml.includes('tailwindcss.com')) {
+    if (cleanHtml.includes('<head>')) {
+      cleanHtml = cleanHtml.replace('<head>', '<head>\n  <script src="https://cdn.tailwindcss.com"></script>');
+    } else if (cleanHtml.startsWith('<!DOCTYPE') || cleanHtml.startsWith('<html')) {
+      // already a full doc
+    } else {
+      cleanHtml = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body>\n${cleanHtml}\n</body>\n</html>`;
+    }
+  }
+  return cleanHtml;
+}
+
+function extractJson(rawText: string): any {
+  const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/i);
+  const cleanStr = jsonMatch ? jsonMatch[1].trim() : rawText.trim();
+  return JSON.parse(cleanStr);
+}
+
+// ---------------------------------------------------------------------------
+// Generate design code
+// ---------------------------------------------------------------------------
+
+export async function generateDesignCode(
+  prompt: string,
+  currentCode: string | null,
+  byok: BYOKConfig,
+  pinCommentsIndex?: { x: number; y: number; comment: string }[],
+  designSystemHtml?: string,
+  imageDataUrl?: string,
+  device?: PreviewDevice
+): Promise<{ html: string; tokensEstimate: number }> {
+  let fullPrompt = `User Request: ${prompt}${buildViewportInstruction(device)}`;
+  if (designSystemHtml && designSystemHtml.trim()) {
+    fullPrompt += `\n\nDesign System / Brand Reference — follow these colors, fonts, spacing, and component patterns:\n\`\`\`html\n${designSystemHtml.slice(0, 12000)}\n\`\`\``;
+  }
+  if (currentCode) {
+    fullPrompt += `\n\nExisting Code Context to Modify or Refine:\n\`\`\`html\n${currentCode}\n\`\`\``;
+  }
+  if (pinCommentsIndex && pinCommentsIndex.length > 0) {
+    fullPrompt += `\n\nUser Target Pin Comments on Specific UI Coordinates:\n${pinCommentsIndex
+      .map((p, idx) => `Pin ${idx + 1} at (${p.x.toFixed(1)}%, ${p.y.toFixed(1)}%): "${p.comment}"`)
+      .join('\n')}`;
+  }
+
+  if (imageDataUrl) {
+    fullPrompt += '\n\nNote: The user attached a wireframe/screenshot image alongside this request. Match its layout, spacing, and visual style as closely as possible.';
+  }
+
+  const images = imageDataUrl
+    ? (() => { const { mimeType, base64 } = splitDataUrl(imageDataUrl); return [{ mimeType, base64 }]; })()
+    : undefined;
+
+  const result = await aiCall(byok, fullPrompt, { images });
+  return { html: extractHtml(result.text), tokensEstimate: result.tokensEstimate };
+}
+
+// ---------------------------------------------------------------------------
+// Generate variants
+// ---------------------------------------------------------------------------
+
 export async function generateVariants(
   prompt: string,
   currentCode: string | null,
@@ -191,314 +213,9 @@ export async function generateVariants(
   return Promise.all(tasks);
 }
 
-function splitDataUrl(dataUrl: string): { mimeType: string; base64: string } {
-  const commaIdx = dataUrl.indexOf(',');
-  const header = commaIdx >= 0 ? dataUrl.slice(0, commaIdx) : '';
-  const mimeMatch = header.match(/^data:([^;]+)/);
-  return {
-    mimeType: mimeMatch ? mimeMatch[1] : 'image/png',
-    base64: commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl,
-  };
-}
-
-export async function generateDesignCode(
-  prompt: string,
-  currentCode: string | null,
-  byok: BYOKConfig,
-  pinCommentsIndex?: { x: number; y: number; comment: string }[],
-  designSystemHtml?: string,
-  imageDataUrl?: string,
-  device?: PreviewDevice
-): Promise<{ html: string; tokensEstimate: number }> {
-  const pInfo = getApiKeyForProvider(byok);
-
-  if (!pInfo.key && pInfo.provider !== 'ollama' && !byok.geminiApiKey) {
-    throw new Error(`API Key missing for provider "${byok.provider.toUpperCase()}". Please open Settings gear icon and enter your API Key.`);
-  }
-
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  let fullPrompt = `${byok.systemPrompt}\n\nUser Request: ${prompt}${buildViewportInstruction(device)}`;
-  if (designSystemHtml && designSystemHtml.trim()) {
-    fullPrompt += `\n\nDesign System / Brand Reference — follow these colors, fonts, spacing, and component patterns so the output matches this brand:\n\`\`\`html\n${designSystemHtml.slice(0, 12000)}\n\`\`\``;
-  }
-  if (currentCode) {
-    fullPrompt += `\n\nExisting Code Context to Modify or Refine:\n\`\`\`html\n${currentCode}\n\`\`\``;
-  }
-  if (pinCommentsIndex && pinCommentsIndex.length > 0) {
-    fullPrompt += `\n\nUser Target Pin Comments on Specific UI Coordinates:\n${pinCommentsIndex
-      .map((p, idx) => `Pin ${idx + 1} at (${p.x.toFixed(1)}%, ${p.y.toFixed(1)}%): "${p.comment}"`)
-      .join('\n')}`;
-  }
-
-  let rawText = '';
-  const attachmentNote = imageDataUrl
-    ? '\n\nNote: The user attached a wireframe/screenshot image alongside this request. Match its layout, spacing, and visual style as closely as possible.'
-    : '';
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing. Please set your API Key in Settings.');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const modelName = resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel);
-    try {
-      const contents: any[] = [{ text: fullPrompt + attachmentNote }];
-      if (imageDataUrl) {
-        const { mimeType, base64 } = splitDataUrl(imageDataUrl);
-        contents.push({ inlineData: { mimeType, data: base64 } });
-      }
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents,
-      });
-      rawText = response.text || '';
-    } catch (gemErr: any) {
-      throw new Error(`Gemini API Error: ${gemErr?.message || gemErr}`);
-    }
-  } else if (pInfo.provider === 'anthropic') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Anthropic API Key missing. Please set your API Key in Settings.');
-    const userContent: any[] = [{ type: 'text', text: fullPrompt + attachmentNote }];
-    if (imageDataUrl) {
-      const { mimeType, base64 } = splitDataUrl(imageDataUrl);
-      userContent.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } });
-    }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': cleanKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: resolveModelName('anthropic', byok.selectedModel, pInfo.defaultModel),
-        max_tokens: 4096,
-        system: byok.systemPrompt,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`Anthropic Error (${res.status}): ${errJson?.error?.message || res.statusText}`);
-    }
-
-    const data = await res.json();
-    rawText = data.content?.[0]?.text || '';
-  } else {
-    // OpenAI Compatible standard endpoint (OpenAI, OpenRouter, OpenCode Zen, Groq, DeepSeek, Mistral, Together, xAI, Ollama, Custom)
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    if (pInfo.provider === 'openrouter') {
-      headers['HTTP-Referer'] = window.location.origin;
-      headers['X-Title'] = 'Gia-co-Design';
-    }
-
-    const modelToUse = resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel);
-
-    const userContent: any[] = [{ type: 'text', text: fullPrompt + attachmentNote }];
-    if (imageDataUrl) {
-      userContent.push({ type: 'image_url', image_url: { url: imageDataUrl } });
-    }
-
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: modelToUse,
-        messages: [
-          { role: 'system', content: byok.systemPrompt },
-          { role: 'user', content: userContent }
-        ],
-        temperature: 0.7,
-      }),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`${pInfo.provider.toUpperCase()} Error (${res.status}): ${errJson?.error?.message || errJson?.detail || res.statusText}`);
-    }
-
-    const data = await res.json();
-    rawText = data.choices?.[0]?.message?.content || '';
-  }
-
-  // Extract HTML from raw text response
-  const htmlMatch = rawText.match(/```html\s*([\s\S]*?)\s*```/i);
-  const cleanHtml = htmlMatch ? htmlMatch[1].trim() : rawText.trim();
-
-  // Ensure CDN script exists if missing
-  let finalHtml = cleanHtml;
-  if (!finalHtml.includes('tailwindcss.com')) {
-    if (finalHtml.includes('<head>')) {
-      finalHtml = finalHtml.replace('<head>', '<head>\n  <script src="https://cdn.tailwindcss.com"></script>');
-    } else if (finalHtml.startsWith('<!DOCTYPE') || finalHtml.startsWith('<html')) {
-      // standard replacement
-    } else {
-      finalHtml = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body>\n${finalHtml}\n</body>\n</html>`;
-    }
-  }
-
-  const tokensEstimate = Math.round(fullPrompt.length / 4 + rawText.length / 4);
-  return { html: finalHtml, tokensEstimate };
-}
-
-export async function decomposeToUIKit(
-  sourceHtml: string,
-  byok: BYOKConfig,
-  kitSlug: string = 'app-ui-kit'
-): Promise<UIKitDecomposition> {
-  const prompt = `Decompose the following monolithic HTML design into a structured multi-file UI Kit package folder ("ui_kits/${kitSlug}/") shaped for coding-agent handoff.
-Generate 5 modular files:
-1. "index.html" (Entry page rendering the components)
-2. "components/AppLayout.tsx" (React component for the primary frame)
-3. "components/HeaderNav.tsx" (React header/nav component)
-4. "tokens.css" (Tailwind design tokens & CSS variables)
-5. "manifest.json" (UI kit metadata, component list, version)
-
-Here is the source HTML to decompose:
-\`\`\`html
-${sourceHtml}
-\`\`\`
-
-OUTPUT FORMAT:
-Return a valid JSON object containing the files array with path and content keys:
-\`\`\`json
-{
-  "files": [
-    { "path": "index.html", "content": "..." },
-    { "path": "components/AppLayout.tsx", "content": "..." },
-    { "path": "components/HeaderNav.tsx", "content": "..." },
-    { "path": "tokens.css", "content": "..." },
-    { "path": "manifest.json", "content": "..." },
-    { "path": "README.md", "content": "..." }
-  ]
-}
-\`\`\``;
-
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else {
-    // OpenAI / Compatible fetch
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    if (pInfo.provider === 'openrouter') {
-      headers['HTTP-Referer'] = window.location.origin;
-      headers['X-Title'] = 'Gia-co-Design';
-    }
-
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
-
-  let parsedFiles: UIKitFile[] = [];
-  try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    const parsed = JSON.parse(cleanJsonStr);
-    if (parsed.files && Array.isArray(parsed.files)) {
-      parsedFiles = parsed.files;
-    }
-  } catch (e) {
-    console.error('Failed to parse UI Kit JSON, falling back to default decomposition', e);
-  }
-
-  if (parsedFiles.length === 0) {
-    // Fallback UI Kit files if parsing fails
-    parsedFiles = [
-      {
-        path: 'index.html',
-        language: 'html',
-        content: sourceHtml,
-      },
-      {
-        path: 'components/AppLayout.tsx',
-        language: 'typescript',
-        content: `import React from 'react';\n\nexport const AppLayout = ({ children }: { children: React.ReactNode }) => (\n  <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4">\n    {children}\n  </div>\n);`,
-      },
-      {
-        path: 'tokens.css',
-        language: 'css',
-        content: `@layer base {\n  :root {\n    --color-primary: #4f46e5;\n    --color-bg: #020617;\n    --radius: 0.75rem;\n  }\n}`,
-      },
-      {
-        path: 'manifest.json',
-        language: 'json',
-        content: JSON.stringify({ name: kitSlug, version: '1.0.0', components: ['AppLayout'] }, null, 2),
-      },
-      {
-        path: 'README.md',
-        language: 'markdown',
-        content: `# ${kitSlug}\nDecomposed UI Kit package generated by Gia-co-Design Agent.`,
-      }
-    ];
-  }
-
-  // 12 Boolean Parity Checks Rubric
-  const parityChecks: ParityCheck[] = [
-    { id: 'p1', label: 'HTML Structure Parity', passed: sourceHtml.includes('<body') || sourceHtml.includes('<div'), detail: 'Main container hierarchy preserved' },
-    { id: 'p2', label: 'Tailwind CDN / Token Import', passed: true, detail: 'Utility classes verified' },
-    { id: 'p3', label: 'Component Breakdown', passed: parsedFiles.some(f => f.path.startsWith('components/')), detail: 'Component modules created' },
-    { id: 'p4', label: 'Design Tokens File', passed: parsedFiles.some(f => f.path === 'tokens.css'), detail: 'tokens.css present' },
-    { id: 'p5', label: 'Manifest Metadata', passed: parsedFiles.some(f => f.path === 'manifest.json'), detail: 'manifest.json present' },
-    { id: 'p6', label: 'Accessibility Roles', passed: sourceHtml.includes('aria-') || sourceHtml.includes('role=') || sourceHtml.includes('button') || sourceHtml.includes('input'), detail: 'Interactive elements check' },
-    { id: 'p7', label: 'Responsive Viewports', passed: sourceHtml.includes('sm:') || sourceHtml.includes('md:') || sourceHtml.includes('flex'), detail: 'Fluid responsive layout preserved' },
-    { id: 'p8', label: 'Color Scale Balance', passed: sourceHtml.includes('bg-') && sourceHtml.includes('text-'), detail: 'Contrast ratio verified' },
-    { id: 'p9', label: 'TypeScript Interfaces', passed: parsedFiles.some(f => f.content.includes('interface') || f.content.includes('type')), detail: 'Props typed correctly' },
-    { id: 'p10', label: 'Zero Console Errors', passed: true, detail: 'Valid runtime syntax' },
-    { id: 'p11', label: 'Interactive Event Handlers', passed: sourceHtml.includes('onclick') || sourceHtml.includes('button'), detail: 'Button click targets detected' },
-    { id: 'p12', label: 'Standalone Portability', passed: true, detail: 'Zero external bundler dependencies' },
-  ];
-
-  const passCount = parityChecks.filter(c => c.passed).length;
-  const parityScore = Number((passCount / parityChecks.length).toFixed(2));
-
-  return {
-    kitName: kitSlug,
-    version: '1.0.0',
-    files: parsedFiles,
-    parityChecks,
-    parityScore,
-    tokensUsed: Math.round(sourceHtml.length / 3 + 1200),
-    generatedAt: Date.now(),
-  };
-}
+// ---------------------------------------------------------------------------
+// Critique design
+// ---------------------------------------------------------------------------
 
 export async function critiqueDesign(codeHtml: string, byok: BYOKConfig): Promise<DesignCritique> {
   const prompt = `You are a senior product designer auditing a generated landing page / UI mockup for quality. 
@@ -536,77 +253,11 @@ OUTPUT FORMAT (strict JSON, no markdown fence):
 \`\`\`
 Return 4-10 findings total.`;
 
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else if (pInfo.provider === 'anthropic') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Anthropic API Key missing');
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': cleanKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: resolveModelName('anthropic', byok.selectedModel, pInfo.defaultModel),
-        max_tokens: 2048,
-        system: 'You are a meticulous senior UI/UX design critic. Always respond with valid JSON only.',
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`Anthropic Error (${res.status}): ${errJson?.error?.message || res.statusText}`);
-    }
-    const data = await res.json();
-    rawJson = data.content?.[0]?.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    if (pInfo.provider === 'openrouter') {
-      headers['HTTP-Referer'] = window.location.origin;
-      headers['X-Title'] = 'Gia-co-Design';
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.4,
-      }),
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`${pInfo.provider.toUpperCase()} Error (${res.status}): ${errJson?.error?.message || errJson?.detail || res.statusText}`);
-    }
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
+  const result = await aiCall(byok, prompt, { temperature: 0.4 });
 
   let parsed: Partial<DesignCritique> = {};
   try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    parsed = JSON.parse(cleanJsonStr);
+    parsed = extractJson(result.text);
   } catch (e) {
     console.error('Failed to parse critique JSON:', e);
   }
@@ -631,10 +282,102 @@ Return 4-10 findings total.`;
     score: typeof parsed.score === 'number' ? Math.min(Math.max(Math.round(parsed.score), 0), 100) : 70,
     summary: parsed.summary ? String(parsed.summary) : 'Design audit complete.',
     findings: findings.length > 0 ? findings : fallbackFindings,
-    tokensUsed: Math.round(prompt.length / 4 + rawJson.length / 4),
+    tokensUsed: result.tokensEstimate,
     generatedAt: Date.now(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Decompose to UI Kit
+// ---------------------------------------------------------------------------
+
+export async function decomposeToUIKit(
+  sourceHtml: string,
+  byok: BYOKConfig,
+  kitSlug: string = 'app-ui-kit'
+): Promise<UIKitDecomposition> {
+  const prompt = `Decompose the following monolithic HTML design into a structured multi-file UI Kit package folder ("ui_kits/${kitSlug}/") shaped for coding-agent handoff.
+Generate 5 modular files:
+1. "index.html" (Entry page rendering the components)
+2. "components/AppLayout.tsx" (React component for the primary frame)
+3. "components/HeaderNav.tsx" (React header/nav component)
+4. "tokens.css" (Tailwind design tokens & CSS variables)
+5. "manifest.json" (UI kit metadata, component list, version)
+
+Here is the source HTML to decompose:
+\`\`\`html
+${sourceHtml}
+\`\`\`
+
+OUTPUT FORMAT:
+Return a valid JSON object containing the files array with path and content keys:
+\`\`\`json
+{
+  "files": [
+    { "path": "index.html", "content": "..." },
+    { "path": "components/AppLayout.tsx", "content": "..." },
+    { "path": "components/HeaderNav.tsx", "content": "..." },
+    { "path": "tokens.css", "content": "..." },
+    { "path": "manifest.json", "content": "..." },
+    { "path": "README.md", "content": "..." }
+  ]
+}
+\`\`\``;
+
+  const result = await aiCall(byok, prompt, { temperature: 0.5 });
+
+  let parsedFiles: UIKitFile[] = [];
+  try {
+    const parsed = extractJson(result.text);
+    if (parsed.files && Array.isArray(parsed.files)) {
+      parsedFiles = parsed.files;
+    }
+  } catch (e) {
+    console.error('Failed to parse UI Kit JSON:', e);
+  }
+
+  if (parsedFiles.length === 0) {
+    parsedFiles = [
+      { path: 'index.html', language: 'html', content: sourceHtml },
+      { path: 'components/AppLayout.tsx', language: 'typescript', content: `import React from 'react';\n\nexport const AppLayout = ({ children }: { children: React.ReactNode }) => (\n  <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4">\n    {children}\n  </div>\n);` },
+      { path: 'tokens.css', language: 'css', content: `@layer base {\n  :root {\n    --color-primary: #4f46e5;\n    --color-bg: #020617;\n    --radius: 0.75rem;\n  }\n}` },
+      { path: 'manifest.json', language: 'json', content: JSON.stringify({ name: kitSlug, version: '1.0.0', components: ['AppLayout'] }, null, 2) },
+      { path: 'README.md', language: 'markdown', content: `# ${kitSlug}\nDecomposed UI Kit package generated by Gia-co-Design Agent.` },
+    ];
+  }
+
+  const parityChecks: ParityCheck[] = [
+    { id: 'p1', label: 'HTML Structure Parity', passed: sourceHtml.includes('<body') || sourceHtml.includes('<div'), detail: 'Main container hierarchy preserved' },
+    { id: 'p2', label: 'Tailwind CDN / Token Import', passed: true, detail: 'Utility classes verified' },
+    { id: 'p3', label: 'Component Breakdown', passed: parsedFiles.some(f => f.path.startsWith('components/')), detail: 'Component modules created' },
+    { id: 'p4', label: 'Design Tokens File', passed: parsedFiles.some(f => f.path === 'tokens.css'), detail: 'tokens.css present' },
+    { id: 'p5', label: 'Manifest Metadata', passed: parsedFiles.some(f => f.path === 'manifest.json'), detail: 'manifest.json present' },
+    { id: 'p6', label: 'Accessibility Roles', passed: sourceHtml.includes('aria-') || sourceHtml.includes('role=') || sourceHtml.includes('button') || sourceHtml.includes('input'), detail: 'Interactive elements check' },
+    { id: 'p7', label: 'Responsive Viewports', passed: sourceHtml.includes('sm:') || sourceHtml.includes('md:') || sourceHtml.includes('flex'), detail: 'Fluid responsive layout preserved' },
+    { id: 'p8', label: 'Color Scale Balance', passed: sourceHtml.includes('bg-') && sourceHtml.includes('text-'), detail: 'Contrast ratio verified' },
+    { id: 'p9', label: 'TypeScript Interfaces', passed: parsedFiles.some(f => f.content.includes('interface') || f.content.includes('type')), detail: 'Props typed correctly' },
+    { id: 'p10', label: 'Zero Console Errors', passed: true, detail: 'Valid runtime syntax' },
+    { id: 'p11', label: 'Interactive Event Handlers', passed: sourceHtml.includes('onclick') || sourceHtml.includes('button'), detail: 'Button click targets detected' },
+    { id: 'p12', label: 'Standalone Portability', passed: true, detail: 'Zero external bundler dependencies' },
+  ];
+
+  const passCount = parityChecks.filter(c => c.passed).length;
+  const parityScore = Number((passCount / parityChecks.length).toFixed(2));
+
+  return {
+    kitName: kitSlug,
+    version: '1.0.0',
+    files: parsedFiles,
+    parityChecks,
+    parityScore,
+    tokensUsed: result.tokensEstimate,
+    generatedAt: Date.now(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Interactive prototype generation
+// ---------------------------------------------------------------------------
 
 export async function generateInteractivePrototype(
   sourceHtml: string,
@@ -674,76 +417,10 @@ OUTPUT FORMAT (strict JSON):
 
 Return 3-8 nodes and corresponding links based on the complexity of the design.`;
 
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else if (pInfo.provider === 'anthropic') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Anthropic API Key missing');
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': cleanKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: resolveModelName('anthropic', byok.selectedModel, pInfo.defaultModel),
-        max_tokens: 2048,
-        system: 'You are a UX prototyping expert. Always respond with valid JSON only.',
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`Anthropic Error (${res.status}): ${errJson?.error?.message || res.statusText}`);
-    }
-    const data = await res.json();
-    rawJson = data.content?.[0]?.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    if (pInfo.provider === 'openrouter') {
-      headers['HTTP-Referer'] = window.location.origin;
-      headers['X-Title'] = 'Gia-co-Design';
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.5,
-      }),
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`${pInfo.provider.toUpperCase()} Error (${res.status}): ${errJson?.error?.message || errJson?.detail || res.statusText}`);
-    }
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
+  const result = await aiCall(byok, prompt, { temperature: 0.5 });
 
   try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    const parsed = JSON.parse(cleanJsonStr);
+    const parsed = extractJson(result.text);
     return {
       nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
       links: Array.isArray(parsed.links) ? parsed.links : [],
@@ -754,84 +431,34 @@ Return 3-8 nodes and corresponding links based on the complexity of the design.`
   }
 }
 
+// ---------------------------------------------------------------------------
+// Generate component from prompt
+// ---------------------------------------------------------------------------
+
 export async function generateComponentFromPrompt(
   prompt: string,
   category: string,
   byok: BYOKConfig,
   designSystemHtml?: string
 ): Promise<{ codeHtml: string; name: string; description: string; tags: string[] }> {
-  const fullPrompt = `${byok.systemPrompt}\n\nGenerate a reusable UI component based on the following request.\n\nComponent Category: ${category}\nUser Request: ${prompt}\n\nThe component should be:\n- Self-contained with all necessary HTML, CSS (Tailwind), and minimal JS\n- Easily copy-pasteable into other projects\n- Responsive and accessible\n- Following modern design patterns\n\n${designSystemHtml ? `Use this design system for colors, fonts, and spacing:\n\`\`\`html\n${designSystemHtml.slice(0, 8000)}\n\`\`\`\n\n` : ''}\nReturn the component as a complete HTML file with inline styles.`;
+  const fullPrompt = `Generate a reusable UI component based on the following request.
 
-  let rawText = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
+Component Category: ${category}
+User Request: ${prompt}
 
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: fullPrompt,
-    });
-    rawText = response.text || '';
-  } else if (pInfo.provider === 'anthropic') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Anthropic API Key missing');
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': cleanKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: resolveModelName('anthropic', byok.selectedModel, pInfo.defaultModel),
-        max_tokens: 4096,
-        system: byok.systemPrompt,
-        messages: [{ role: 'user', content: fullPrompt }],
-      }),
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`Anthropic Error (${res.status}): ${errJson?.error?.message || res.statusText}`);
-    }
-    const data = await res.json();
-    rawText = data.content?.[0]?.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    if (pInfo.provider === 'openrouter') {
-      headers['HTTP-Referer'] = window.location.origin;
-      headers['X-Title'] = 'Gia-co-Design';
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: fullPrompt }],
-        temperature: 0.7,
-      }),
-    });
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(`${pInfo.provider.toUpperCase()} Error (${res.status}): ${errJson?.error?.message || errJson?.detail || res.statusText}`);
-    }
-    const data = await res.json();
-    rawText = data.choices?.[0]?.message?.content || '';
-  }
+The component should be:
+- Self-contained with all necessary HTML, CSS (Tailwind), and minimal JS
+- Easily copy-pasteable into other projects
+- Responsive and accessible
+- Following modern design patterns
 
-  const htmlMatch = rawText.match(/```html\s*([\s\S]*?)\s*```/i);
-  const cleanHtml = htmlMatch ? htmlMatch[1].trim() : rawText.trim();
+${designSystemHtml ? `Use this design system for colors, fonts, and spacing:\n\`\`\`html\n${designSystemHtml.slice(0, 8000)}\n\`\`\`\n\n` : ''}
+Return the component as a complete HTML file with inline styles.`;
 
-  // Extract metadata from the response
+  const result = await aiCall(byok, fullPrompt);
+  const cleanHtml = extractHtml(result.text);
+  const rawText = result.text;
+
   const nameMatch = rawText.match(/##\s*Name:\s*(.+?)(?:\n|$)/i);
   const descMatch = rawText.match(/##\s*Description:\s*(.+?)(?:\n|$)/i);
   const tagsMatch = rawText.match(/##\s*Tags:\s*(.+?)(?:\n|$)/i);
@@ -843,6 +470,10 @@ export async function generateComponentFromPrompt(
     tags: tagsMatch ? tagsMatch[1].split(',').map((t: string) => t.trim()) : [category.toLowerCase()],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Extract design tokens
+// ---------------------------------------------------------------------------
 
 export async function extractDesignTokens(sourceHtml: string, byok: BYOKConfig): Promise<{ tokens: DesignToken[]; tokensEstimate: number }> {
   const prompt = `Analyze the following HTML/Tailwind design and extract all design tokens. Identify colors, spacing values, typography settings, border radii, shadows, and breakpoints.
@@ -865,52 +496,23 @@ Extract tokens in this JSON format:
 
 Return ALL tokens found. Group by type and category.`;
 
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
+  const result = await aiCall(byok, prompt, { temperature: 0.3 });
 
   try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    const parsed = JSON.parse(cleanJsonStr);
+    const parsed = extractJson(result.text);
     return {
       tokens: Array.isArray(parsed.tokens) ? parsed.tokens : [],
-      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+      tokensEstimate: result.tokensEstimate,
     };
   } catch (e) {
     console.error('Failed to parse tokens JSON:', e);
     return { tokens: [], tokensEstimate: 0 };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Accessibility report
+// ---------------------------------------------------------------------------
 
 export async function generateAccessibilityReport(sourceHtml: string, byok: BYOKConfig): Promise<{ report: AccessibilityReport; tokensEstimate: number }> {
   const prompt = `Perform a comprehensive WCAG 2.1 accessibility audit on the following HTML design. Check for color contrast, keyboard navigation, screen reader compatibility, ARIA labels, focus states, and semantic HTML structure.
@@ -942,44 +544,10 @@ Return results in this JSON format:
 
 Be thorough and specific. Include ALL issues found with actionable suggestions.`;
 
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-      }),
-    });
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
+  const result = await aiCall(byok, prompt, { temperature: 0.3 });
 
   try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    const parsed = JSON.parse(cleanJsonStr);
+    const parsed = extractJson(result.text);
     return {
       report: {
         wcagLevel: parsed.wcagLevel || 'A',
@@ -987,7 +555,7 @@ Be thorough and specific. Include ALL issues found with actionable suggestions.`
         issues: Array.isArray(parsed.issues) ? parsed.issues : [],
         passedChecks: Array.isArray(parsed.passedChecks) ? parsed.passedChecks : [],
       },
-      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+      tokensEstimate: result.tokensEstimate,
     };
   } catch (e) {
     console.error('Failed to parse accessibility JSON:', e);
@@ -997,6 +565,10 @@ Be thorough and specific. Include ALL issues found with actionable suggestions.`
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Platform conversion
+// ---------------------------------------------------------------------------
 
 export async function convertToPlatform(sourceHtml: string, platform: ExportPreset, byok: BYOKConfig): Promise<{ code: string; files: Array<{ path: string; content: string }>; tokensEstimate: number }> {
   const platformInstructions: Record<string, string> = {
@@ -1036,59 +608,28 @@ Return a JSON object with:
   ]
 }`;
 
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.5,
-      }),
-    });
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
+  const result = await aiCall(byok, prompt, { temperature: 0.5 });
 
   try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    const parsed = JSON.parse(cleanJsonStr);
-    
-    const files = Array.isArray(parsed.files) 
-      ? parsed.files 
+    const parsed = extractJson(result.text);
+    const files = Array.isArray(parsed.files)
+      ? parsed.files
       : [{ path: `src/components/ExportedComponent.${platform.componentFormat}`, content: parsed.mainCode || '' }];
-    
+
     return {
       code: parsed.mainCode || '',
       files,
-      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+      tokensEstimate: result.tokensEstimate,
     };
   } catch (e) {
     console.error('Failed to parse platform conversion JSON:', e);
     return { code: '', files: [], tokensEstimate: 0 };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Auto-layout config
+// ---------------------------------------------------------------------------
 
 export async function generateAutoLayoutConfig(sourceHtml: string, byok: BYOKConfig): Promise<{ config: AutoLayoutConfig; tokensEstimate: number }> {
   const prompt = `Analyze the following HTML/Tailwind design and infer the auto-layout configuration that would recreate it in a Figma-like system.
@@ -1119,43 +660,10 @@ Return JSON:
 }
 \`\`\``;
 
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
+  const result = await aiCall(byok, prompt, { temperature: 0.3 });
 
   try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    const parsed = JSON.parse(cleanJsonStr);
+    const parsed = extractJson(result.text);
     return {
       config: {
         enabled: parsed.enabled ?? true,
@@ -1166,7 +674,7 @@ Return JSON:
         padding: parsed.padding || { top: 0, right: 0, bottom: 0, left: 0 },
         wrap: parsed.wrap ?? false,
       },
-      tokensEstimate: Math.round(sourceHtml.length / 4 + rawJson.length / 4),
+      tokensEstimate: result.tokensEstimate,
     };
   } catch (e) {
     console.error('Failed to parse auto-layout JSON:', e);
@@ -1185,6 +693,10 @@ Return JSON:
   }
 }
 
+// ---------------------------------------------------------------------------
+// Plan app screens
+// ---------------------------------------------------------------------------
+
 export interface PlannedScreen {
   name: string;
   kind: 'website' | 'mobile' | 'dashboard' | 'landing' | 'component' | 'other';
@@ -1192,12 +704,6 @@ export interface PlannedScreen {
   prompt: string;
 }
 
-/**
- * Plans a whole small app/site as a set of linked screens from one
- * high-level description - this is the Stitch/Replit-style entry point.
- * Design/mockup output only (static HTML per screen); does not imply any
- * backend or real navigation logic between screens.
- */
 export async function planAppScreens(
   description: string,
   byok: BYOKConfig,
@@ -1223,43 +729,10 @@ Return ONLY this JSON:
 }
 \`\`\``;
 
-  let rawJson = '';
-  const pInfo = getApiKeyForProvider(byok);
-  const userApiKey = pInfo.key || byok.geminiApiKey;
-
-  if (pInfo.provider === 'gemini') {
-    const cleanKey = cleanApiKey(userApiKey);
-    if (!cleanKey) throw new Error('Gemini API Key missing');
-    const ai = new GoogleGenAI({ apiKey: cleanKey });
-    const response = await ai.models.generateContent({
-      model: resolveModelName('gemini', byok.selectedModel, pInfo.defaultModel),
-      contents: prompt,
-    });
-    rawJson = response.text || '';
-  } else {
-    const baseUrl = pInfo.baseUrl || 'https://api.openai.com/v1';
-    const cleanUrl = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    const cleanKey = cleanApiKey(userApiKey);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (cleanKey && cleanKey !== 'ollama') {
-      headers['Authorization'] = `Bearer ${cleanKey}`;
-    }
-    const res = await fetch(cleanUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: resolveModelName(pInfo.provider, byok.selectedModel, pInfo.defaultModel),
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const data = await res.json();
-    rawJson = data.choices?.[0]?.message?.content || '';
-  }
+  const result = await aiCall(byok, prompt, { temperature: 0.5 });
 
   try {
-    const jsonMatch = rawJson.match(/```json\s*([\s\S]*?)\s*```/i);
-    const cleanJsonStr = jsonMatch ? jsonMatch[1].trim() : rawJson.trim();
-    const parsed = JSON.parse(cleanJsonStr);
+    const parsed = extractJson(result.text);
     const screens: PlannedScreen[] = Array.isArray(parsed.screens)
       ? parsed.screens
           .filter((s: any) => s?.name && s?.prompt)
@@ -1272,9 +745,8 @@ Return ONLY this JSON:
           }))
       : [];
     if (screens.length === 0) throw new Error('empty');
-    return { screens, tokensEstimate: Math.round(prompt.length / 4 + rawJson.length / 4) };
+    return { screens, tokensEstimate: result.tokensEstimate };
   } catch (e) {
     throw new Error('Could not plan screens from that description. Try being more specific about what the app/site is for.');
   }
 }
-
