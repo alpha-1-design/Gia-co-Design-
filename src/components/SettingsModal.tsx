@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Key, HelpCircle, RefreshCw, Sparkles, Check, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { X, Key, HelpCircle, RefreshCw, Sparkles, Check, CheckCircle2, AlertTriangle, RotateCcw } from 'lucide-react';
 import { BYOKConfig, AIProvider } from '../types';
 import { fetchLiveModels } from '../lib/ai';
 import {
@@ -16,6 +16,7 @@ interface SettingsModalProps {
   byok: BYOKConfig;
   onSave: (newConfig: BYOKConfig) => void;
   theme?: 'light' | 'dark';
+  onReplayTutorial?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -24,6 +25,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   byok,
   onSave,
   theme = 'light',
+  onReplayTutorial,
 }) => {
   const [config, setConfig] = useState<BYOKConfig>(byok);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -535,13 +537,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className={`p-4 border-t flex items-center justify-between ${
           isLight ? 'bg-[#f4f0e8] border-[#e6e1d7]' : 'bg-[#1b1a17] border-[#38342e]'
         }`}>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-gray-500 hover:text-gray-700 transition-colors text-xs font-medium"
-          >
-            Cancel
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl text-gray-500 hover:text-gray-700 transition-colors text-xs font-medium"
+            >
+              Cancel
+            </button>
+            {onReplayTutorial && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onReplayTutorial();
+                }}
+                className="px-3 py-2 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-black/5 transition-colors text-xs font-medium flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Replay Tutorial
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={handleSave}

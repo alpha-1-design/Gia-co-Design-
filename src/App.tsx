@@ -55,7 +55,9 @@ import { Smartphone, Sparkles, Code2, Layers, Link2, FolderPlus, X, Map, Eye, Te
 import { InfiniteCanvas } from './components/InfiniteCanvas';
 import { TerminalPanel } from './components/TerminalPanel';
 import { SkillGallery } from './components/SkillGallery';
+import { OnboardingTour } from './components/OnboardingTour';
 import { getActiveSkill, importSkillFromCurrentUrl } from './lib/skills';
+import { hasCompletedOnboarding, setOnboardingCompleted } from './lib/storage';
 import { DesignSkill } from './types';
 
 export default function App() {
@@ -99,6 +101,8 @@ export default function App() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [showSkillGallery, setShowSkillGallery] = useState(false);
   const [activeSkillPrompt, setActiveSkillPrompt] = useState<string | undefined>(() => getActiveSkill()?.systemPrompt);
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasCompletedOnboarding());
+  const [onboardingKey, setOnboardingKey] = useState(0);
 
   // Find active session, and within it, the active screen (a session can
   // now hold multiple named screens - a mobile app concept might have a
@@ -969,6 +973,7 @@ export default function App() {
         byok={byok}
         onSave={handleSaveBYOK}
         theme={theme}
+        onReplayTutorial={() => { setOnboardingKey((k) => k + 1); setShowOnboarding(true); }}
       />
       <SessionsDrawer
         isOpen={showSessionsDrawer}
@@ -1102,6 +1107,19 @@ export default function App() {
         onSkillActivated={(skill: DesignSkill | null) => {
           setActiveSkillPrompt(skill?.systemPrompt);
         }}
+      />
+      <OnboardingTour
+        isOpen={showOnboarding}
+        onClose={() => {
+          setOnboardingCompleted();
+          setShowOnboarding(false);
+        }}
+        onSkip={() => {
+          setOnboardingCompleted();
+          setShowOnboarding(false);
+        }}
+        theme={theme}
+        tourKey={onboardingKey}
       />
     </div>
   );

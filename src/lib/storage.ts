@@ -7,6 +7,7 @@ const ACTIVE_SESSION_ID_KEY = 'open_codesign_active_session_id';
 const DESIGN_SYSTEMS_KEY = 'open_codesign_design_systems';
 const COMPONENT_LIBRARY_KEY = 'open_codesign_component_library';
 const ACTIVE_DESIGN_SYSTEM_KEY = 'open_codesign_active_design_system_id';
+const ONBOARDING_COMPLETED_KEY = 'open_codesign_onboarding_completed';
 
 export const DEFAULT_BYOK_CONFIG: BYOKConfig = {
   provider: 'gemini',
@@ -298,5 +299,29 @@ export function setActiveDesignSystemId(id: string | null): void {
     }
   } catch (e) {
     console.error('Failed to save active design system ID', e);
+  }
+}
+
+export function hasCompletedOnboarding(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true';
+  } catch (e) {
+    return false;
+  }
+}
+
+export function setOnboardingCompleted(): void {
+  try {
+    localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true');
+  } catch (e) {
+    console.error('Failed to save onboarding state', e);
+  }
+}
+
+export function resetOnboarding(): void {
+  try {
+    localStorage.removeItem(ONBOARDING_COMPLETED_KEY);
+  } catch (e) {
+    console.error('Failed to reset onboarding state', e);
   }
 }
